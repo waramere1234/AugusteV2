@@ -1,0 +1,121 @@
+// ── Menu item sub-types (jsonb columns) ──────────────────────────────────────
+
+export interface Taille {
+  label: string;   // "S", "M", "L", "30cm", "Pièce"
+  prix: number;
+}
+
+export interface Supplement {
+  nom: string;          // "Fromage", "Bacon"
+  prix: number;         // 2.00
+  obligatoire: boolean; // true = le client doit choisir
+}
+
+export interface Accompagnement {
+  nom: string;     // "Frites", "Salade"
+  prix: number;    // 0 si inclus
+  inclus: boolean; // true = pas de surcoût
+}
+
+// ── MenuItem ─────────────────────────────────────────────────────────────────
+export interface MenuItem {
+  id: string;
+  nom: string;
+  categorie: string;
+  description: string;
+  prix: string;
+  style: string;
+  image_url?: string;
+  tailles?: Taille[];
+  supplements?: Supplement[];
+  accompagnements?: Accompagnement[];
+  allergenes?: string[];
+  labels?: string[];
+  disponible?: boolean;
+  item_type?: 'plat' | 'formule' | 'boisson' | 'dessert';
+  image_source?: 'platform' | 'generated' | 'user' | null;
+  position?: number;
+}
+
+// ── Restaurant (NEW — v2 pivot) ─────────────────────────────────────────────
+export interface Restaurant {
+  id: string;
+  owner_id: string;
+  name: string;
+  cuisine_profile_id: string | null;
+  cuisine_types: string[];
+  address: string | null;
+  phone: string | null;
+  description: string | null;
+  style_photo_url: string | null;
+  dish_reference_url: string | null;
+  hero_photo_url: string | null;
+  google_place_id: string | null;
+  google_business_data: GoogleBusinessData | null;
+  presentation_style_id: string | null;
+  style_description: string | null;
+  logo_url: string | null;
+  created_at: string;
+}
+
+// ── Menu ─────────────────────────────────────────────────────────────────────
+export interface Menu {
+  id: string;
+  restaurant_id: string;
+  file_name: string;
+  source_type: 'file' | 'url' | 'photo';
+  detected_cuisine_profile: string | null;
+  hero_photo_url: string | null;
+  category_order: string[] | null;
+  created_at: string;
+  items: MenuItem[];
+}
+
+// ── Google Business Data ─────────────────────────────────────────────────────
+export interface GoogleBusinessData {
+  place_id: string;
+  name: string;
+  address: string;
+  phone: string;
+  rating: number | null;
+  reviews_count: number;
+  hours: string[];
+  description: string;
+  cuisine_types: string[];
+  primary_type: string;
+  primary_type_display: string;
+  detected_cuisine_profile: string | null;
+  website: string;
+  google_maps_url: string;
+  photo_references: string[];
+  photo_urls: string[];
+}
+
+// ── Image Generation ─────────────────────────────────────────────────────────
+export interface ImageRequest {
+  id: string;
+  name?: string;
+  category?: string;
+  description?: string;
+  quality?: 'standard' | 'premium';
+  cuisineProfile?: string;
+  cuisineTypes?: string[];
+  restaurantPhotoBase64?: string;
+  dishReferenceBase64?: string;
+  userInstructions?: string;
+  siblingImageBase64?: string;
+}
+
+export interface GeneratedImage {
+  item_id: string;
+  image_url: string;
+  prompt?: string;
+  created_at: string;
+}
+
+// ── User / Credits ───────────────────────────────────────────────────────────
+export interface UserCredits {
+  credits_used: number;
+  credits_purchased: number;
+  remaining: number;
+}
