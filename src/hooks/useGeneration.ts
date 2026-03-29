@@ -16,6 +16,75 @@ interface UseGenerationReturn {
   progress: { done: number; total: number }
   generateBatch: (items: MenuItem[], restaurant: Restaurant) => Promise<void>
   regenerateOne: (item: MenuItem, restaurant: Restaurant, instructions?: string) => Promise<string | null>
+  enhanceOne: (item: MenuItem, restaurant: Restaurant, sourceImageUrl: string) => Promise<string | null>
+}
+
+/** Map a MenuItem + Restaurant into the dish shape the Edge Function expects */
+function buildDish(
+  item: MenuItem,
+  restaurant: Restaurant,
+  options?: { instructions?: string; sourceImageUrl?: string; isEnhance?: boolean },
+) {
+  return {
+    id: item.id,
+    name: item.nom,
+    category: item.categorie,
+    description: item.description,
+    style: item.style,
+    cuisineProfile: restaurant.cuisine_profile_id,
+    cuisineTypes: restaurant.cuisine_types,
+    userInstructions: options?.instructions,
+    sourceImageUrl: options?.sourceImageUrl,
+    isEnhance: options?.isEnhance,
+  }
+}
+
+/** Get the current user's ID from Supabase Auth */
+async function getUserId(): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+  return user.id
+}
+
+/**
+ * Persist a generated image: upload to Storage → update menu_items → insert generated_images.
+ * Storage RLS requires path: {userId}/filename — so we prefix with the authenticated user's ID.
+ * Returns the public Storage URL.
+ */
+async function persistImage(itemId: string, dataUri: string, userId: string): Promise<string> {
+  // Convert data URI to Blob
+  const res = await fetch(dataUri)
+  const blob = await res.blob()
+
+  // Determine extension from MIME
+  const ext = blob.type === 'image/png' ? 'png' : 'webp'
+  const filePath = `${userId}/${itemId}_${Date.now()}.${ext}`
+
+  // Upload to Supabase Storage
+  const { error: uploadError } = await supabase.storage
+    .from('menu-images')
+    .upload(filePath, blob, { contentType: blob.type, upsert: true })
+  if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
+
+  // Get public URL
+  const { data: { publicUrl } } = supabase.storage
+    .from('menu-images')
+    .getPublicUrl(filePath)
+
+  // Update menu_items row
+  const { error: updateError } = await supabase
+    .from('menu_items')
+    .update({ image_url: publicUrl, image_source: 'generated' })
+    .eq('id', itemId)
+  if (updateError) console.error('menu_items update error:', updateError.message)
+
+  // Insert into generated_images
+  const { error: insertError } = await supabase
+    .from('generated_images')
+    .insert({ menu_item_id: itemId, image_url: publicUrl })
+  if (insertError) console.error('generated_images insert error:', insertError.message)
+
+  return publicUrl
 }
 
 export function useGeneration(): UseGenerationReturn {
@@ -25,11 +94,10 @@ export function useGeneration(): UseGenerationReturn {
   const doneCount = jobs.filter((j) => j.status === 'done').length
   const progress = { done: doneCount, total: jobs.length }
 
-  // Generate photos for a batch of items, one at a time
+  // Generate photos for a batch of items — single Edge Function call
   const generateBatch = useCallback(async (items: MenuItem[], restaurant: Restaurant) => {
     if (items.length === 0) return
 
-    // Initialize jobs
     const initialJobs: GenerationJob[] = items.map((item) => ({
       itemId: item.id,
       itemName: item.nom,
@@ -38,46 +106,80 @@ export function useGeneration(): UseGenerationReturn {
     setJobs(initialJobs)
     setGenerating(true)
 
-    await ensureSession()
+    try {
+      await ensureSession()
+      const userId = await getUserId()
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]
+      // Mark all as generating
+      setJobs((prev) => prev.map((j) => ({ ...j, status: 'generating' })))
 
-      // Mark as generating
-      setJobs((prev) =>
-        prev.map((j, idx) => (idx === i ? { ...j, status: 'generating' } : j)),
-      )
+      const dishes = items.map((item) => buildDish(item, restaurant, {}))
 
-      try {
-        const { data, error } = await supabase.functions.invoke('generate-dish-photo', {
-          body: {
-            itemId: item.id,
-            name: item.nom,
-            category: item.categorie,
-            description: item.description,
-            cuisineProfile: restaurant.cuisine_profile_id,
-            cuisineTypes: restaurant.cuisine_types,
-            restaurantId: restaurant.id,
-          },
-        })
+      const { data, error } = await supabase.functions.invoke('generate-dish-photo', {
+        body: {
+          dishes,
+          restaurantType: restaurant.cuisine_profile_id,
+        },
+      })
 
-        if (error) throw new Error(error.message)
-
-        const imageUrl = data?.imageUrl ?? data?.image_url ?? data?.url
-        setJobs((prev) =>
-          prev.map((j, idx) =>
-            idx === i ? { ...j, status: 'done', imageUrl } : j,
-          ),
-        )
-      } catch (err) {
-        setJobs((prev) =>
-          prev.map((j, idx) =>
-            idx === i
-              ? { ...j, status: 'error', error: err instanceof Error ? err.message : 'Erreur' }
-              : j,
-          ),
-        )
+      if (error) {
+        // Extract real error message from Edge Function response
+        let msg = error.message
+        try {
+          const ctx = error.context as Response | undefined
+          if (ctx?.json) {
+            const body = await ctx.json()
+            msg = body?.error || body?.message || msg
+          }
+        } catch { /* not parseable */ }
+        console.error('generate-dish-photo error:', msg)
+        throw new Error(msg)
       }
+      if (!data?.success) throw new Error(data?.error || 'Erreur de génération')
+
+      const images: { dishId: string; imageUrl: string }[] = data.images ?? []
+
+      // Persist each image: upload to Storage + update DB
+      for (const img of images) {
+        try {
+          const storageUrl = img.imageUrl.startsWith('data:')
+            ? await persistImage(img.dishId, img.imageUrl, userId)
+            : img.imageUrl
+
+          setJobs((prev) =>
+            prev.map((j) =>
+              j.itemId === img.dishId
+                ? { ...j, status: 'done', imageUrl: storageUrl }
+                : j,
+            ),
+          )
+        } catch (err) {
+          setJobs((prev) =>
+            prev.map((j) =>
+              j.itemId === img.dishId
+                ? { ...j, status: 'error', error: err instanceof Error ? err.message : 'Upload échoué' }
+                : j,
+            ),
+          )
+        }
+      }
+
+      // Mark any items that didn't get an image as error
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.status === 'generating'
+            ? { ...j, status: 'error', error: 'Pas d\'image retournée' }
+            : j,
+        ),
+      )
+    } catch (err) {
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.status !== 'done'
+            ? { ...j, status: 'error', error: err instanceof Error ? err.message : 'Erreur' }
+            : j,
+        ),
+      )
     }
 
     setGenerating(false)
@@ -91,25 +193,61 @@ export function useGeneration(): UseGenerationReturn {
   ): Promise<string | null> => {
     try {
       await ensureSession()
+      const userId = await getUserId()
+
       const { data, error } = await supabase.functions.invoke('generate-dish-photo', {
         body: {
-          itemId: item.id,
-          name: item.nom,
-          category: item.categorie,
-          description: item.description,
-          cuisineProfile: restaurant.cuisine_profile_id,
-          cuisineTypes: restaurant.cuisine_types,
-          restaurantId: restaurant.id,
-          userInstructions: instructions,
+          dishes: [buildDish(item, restaurant, { instructions })],
+          restaurantType: restaurant.cuisine_profile_id,
         },
       })
 
       if (error) throw new Error(error.message)
-      return data?.imageUrl ?? data?.image_url ?? data?.url ?? null
+      if (!data?.success) return null
+
+      const images: { dishId: string; imageUrl: string }[] = data.images ?? []
+      const rawUrl = images[0]?.imageUrl
+      if (!rawUrl) return null
+
+      // Persist: upload to Storage + update DB
+      return rawUrl.startsWith('data:')
+        ? await persistImage(item.id, rawUrl, userId)
+        : rawUrl
     } catch {
       return null
     }
   }, [])
 
-  return { jobs, generating, progress, generateBatch, regenerateOne }
+  // Enhance a single item using the user's uploaded photo URL as reference
+  const enhanceOne = useCallback(async (
+    item: MenuItem,
+    restaurant: Restaurant,
+    sourceImageUrl: string,
+  ): Promise<string | null> => {
+    await ensureSession()
+    const userId = await getUserId()
+
+    const { data, error } = await supabase.functions.invoke('generate-dish-photo', {
+      body: {
+        dishes: [buildDish(item, restaurant, {
+          sourceImageUrl,
+          isEnhance: true,
+        })],
+        restaurantType: restaurant.cuisine_profile_id,
+      },
+    })
+
+    if (error) throw new Error(error.message)
+    if (!data?.success) throw new Error(data?.error || 'Enhance échoué')
+
+    const images: { dishId: string; imageUrl: string }[] = data.images ?? []
+    const rawUrl = images[0]?.imageUrl
+    if (!rawUrl) throw new Error('Pas d\'image retournée')
+
+    return rawUrl.startsWith('data:')
+      ? await persistImage(item.id, rawUrl, userId)
+      : rawUrl
+  }, [])
+
+  return { jobs, generating, progress, generateBatch, regenerateOne, enhanceOne }
 }

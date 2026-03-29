@@ -1,9 +1,14 @@
-import { useState, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, FileUp, Link2, Loader2, Check, X, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Check, X, RefreshCw, UtensilsCrossed, Sparkles, FileText } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { useRestaurant } from '@/hooks/useRestaurant'
 import { useMenus } from '@/hooks/useMenus'
+import { useGeneration } from '@/hooks/useGeneration'
+import { supabase } from '@/lib/supabase'
+import { ImportOptions } from '@/components/menu/ImportOptions'
+import { EditBottomSheet } from '@/components/menu/EditBottomSheet'
+import { MenuItemCard } from '@/components/menu/MenuItemCard'
 import type { MenuItem } from '@/types'
 
 export function MenuPage() {
@@ -11,91 +16,144 @@ export function MenuPage() {
   const navigate = useNavigate()
   const { restaurant } = useRestaurant()
   const {
-    items, categories, loading, extracting, extractedItems, error,
-    importFromFile, importFromUrl, updateItem, deleteItem,
+    items, categories, loading, extracting, enriching, extractedItems, error,
+    importFromFiles, importFromUrl, enrichDescriptions, updateItem, deleteItem, reload,
   } = useMenus(restaurant?.id ?? null)
-
+  const { enhanceOne } = useGeneration()
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [urlInput, setUrlInput] = useState('')
-  const [showUrlInput, setShowUrlInput] = useState(false)
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
-
-  const photoInputRef = useRef<HTMLInputElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // ── Import handlers ────────────────────────────────────────────────────────
-
-  async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>, source: 'photo' | 'file') {
-    const file = e.target.files?.[0]
-    if (!file || !restaurant) return
-    void source // both use the same edge function
-    await importFromFile(file, restaurant.id)
-  }
-
-  async function handleUrlImport() {
-    if (!urlInput.trim() || !restaurant) return
-    await importFromUrl(urlInput.trim(), restaurant.id)
-    setUrlInput('')
-    setShowUrlInput(false)
-  }
+  const [dismissedError, setDismissedError] = useState<string | null>(null)
+  const [showImport, setShowImport] = useState(false)
+  const [enhancingId, setEnhancingId] = useState<string | null>(null)
 
   // ── Selection ──────────────────────────────────────────────────────────────
-
-  function toggleSelect(itemId: string) {
+  const toggleSelect = useCallback((itemId: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(itemId)) next.delete(itemId)
       else next.add(itemId)
       return next
     })
-  }
+  }, [])
 
-  function selectAll() {
-    const filtered = filteredItems.map((i) => i.id)
+  const selectAll = useCallback(() => {
+    const filtered = (activeCategory ? items.filter((i) => i.categorie === activeCategory) : items).map((i) => i.id)
     setSelectedIds((prev) => {
       const allSelected = filtered.every((id) => prev.has(id))
-      if (allSelected) return new Set()
-      return new Set([...prev, ...filtered])
+      return allSelected ? new Set() : new Set([...prev, ...filtered])
     })
-  }
+  }, [items, activeCategory])
 
-  // ── Filter by category ─────────────────────────────────────────────────────
-
+  // ── Helpers ────────────────────────────────────────────────────────────────
   const filteredItems = activeCategory
     ? items.filter((i) => i.categorie === activeCategory)
     : items
 
-  // ── Loading ────────────────────────────────────────────────────────────────
+  const visibleError = error && error !== dismissedError ? error : null
+  const I18N_ERRORS = ['error.menu.fileTooLarge', 'error.menu.invalidFormat', 'error.menu.extractionFailed', 'error.menu.noItems', 'error.menu.extractionError'] as const
+  type EK = typeof I18N_ERRORS[number]
+  const displayError = visibleError && (I18N_ERRORS.includes(visibleError as EK) ? t(visibleError as EK) : visibleError)
 
+  const handleImportFiles = useCallback(async (files: File[]) => {
+    if (!restaurant) return
+    setShowImport(false)
+    await importFromFiles(files, restaurant.id)
+  }, [restaurant, importFromFiles])
+
+  const handlePhotoUpload = useCallback(async (item: MenuItem, photoBase64: string) => {
+    if (!restaurant) return
+    setEnhancingId(item.id)
+
+    try {
+      // Step 1: Save user photo immediately
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
+
+      const blob = await fetch(`data:image/jpeg;base64,${photoBase64}`).then(r => r.blob())
+      const filePath = `${user.id}/${item.id}_user_${Date.now()}.jpg`
+      const { error: uploadErr } = await supabase.storage
+        .from('menu-images')
+        .upload(filePath, blob, { contentType: 'image/jpeg', upsert: true })
+      if (uploadErr) throw new Error(uploadErr.message)
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('menu-images')
+        .getPublicUrl(filePath)
+
+      await supabase.from('menu_items')
+        .update({ image_url: publicUrl, image_source: 'user' as const })
+        .eq('id', item.id)
+
+      reload() // Show user photo immediately
+
+      // Step 2: Enhance via AI in background — pass the Storage URL, not base64
+      try {
+        const enhancedUrl = await enhanceOne(item, restaurant, publicUrl)
+        if (enhancedUrl) reload()
+      } catch (err) {
+        console.error('Enhance failed (keeping user photo):', err)
+      }
+    } catch (err) {
+      console.error('Photo upload error:', err)
+    }
+
+    setEnhancingId(null)
+  }, [restaurant, reload, enhanceOne])
+
+  const handleImportUrl = useCallback(async (url: string) => {
+    if (!restaurant) return
+    setShowImport(false)
+    await importFromUrl(url, restaurant.id)
+  }, [restaurant, importFromUrl])
+
+  // Count items per category for pills
+  const categoryItemCounts = categories.reduce<Record<string, number>>((acc, cat) => {
+    acc[cat] = items.filter((i) => i.categorie === cat).length
+    return acc
+  }, {})
+
+  // ── Loading ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
+      <div className="flex flex-col items-center justify-center py-20 gap-3">
         <Loader2 className="animate-spin text-[#C9A961]" size={32} />
+        <p className="text-sm text-gray-400">{t('common.loading')}</p>
       </div>
     )
   }
 
   // ── Extraction in progress ─────────────────────────────────────────────────
-
   if (extracting) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold font-serif text-[#2C2622]">{t('menu.extracting')}</h1>
-        <div className="bg-white rounded-xl p-5 shadow-sm space-y-3">
+      <div className="space-y-6 animate-fade-in">
+        <div>
+          <h1 className="text-2xl font-bold font-serif text-[#2C2622]">{t('menu.extracting')}</h1>
+          <p className="text-sm text-gray-400 mt-1">{t('menu.extracting.desc')}</p>
+        </div>
+
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 space-y-4">
+          {/* Progress bar */}
           <div className="flex items-center gap-3">
-            <Loader2 className="animate-spin text-[#C9A961]" size={20} />
-            <p className="text-sm text-gray-500">{t('menu.extracting.desc')}</p>
+            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-[#C9A961] to-[#D4B96E] rounded-full animate-pulse" style={{ width: '60%' }} />
+            </div>
+            <Loader2 className="animate-spin text-[#C9A961] shrink-0" size={16} />
           </div>
+
+          {/* Items appearing */}
           {extractedItems.length > 0 && (
-            <div className="space-y-2 pt-2">
+            <div className="space-y-1.5 max-h-[50vh] overflow-y-auto">
               {extractedItems.map((name, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-2 text-sm animate-fade-in"
+                  className="flex items-center gap-3 py-2 px-3 rounded-lg bg-[#FAF8F5] animate-fade-in"
+                  style={{ animationDelay: `${i * 50}ms` }}
                 >
-                  <Check size={14} className="text-[#7C9A6B]" />
-                  <span className="text-[#2C2622]">{name}</span>
+                  <div className="w-5 h-5 rounded-full bg-[#7C9A6B]/10 flex items-center justify-center shrink-0">
+                    <Check size={12} className="text-[#7C9A6B]" />
+                  </div>
+                  <span className="text-sm text-[#2C2622] font-medium">{name}</span>
                 </div>
               ))}
             </div>
@@ -105,371 +163,175 @@ export function MenuPage() {
     )
   }
 
-  // ── No menu yet — show import options ──────────────────────────────────────
-
-  if (items.length === 0) {
+  // ── Import view ────────────────────────────────────────────────────────────
+  if (items.length === 0 || showImport) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold font-serif text-[#2C2622]">{t('menu.title')}</h1>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
-            {error}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 gap-3">
-          {/* Photo */}
-          <button
-            onClick={() => photoInputRef.current?.click()}
-            className="flex items-center gap-4 p-5 bg-white rounded-xl shadow-sm active:bg-gray-50 transition-colors text-left"
-          >
-            <div className="p-3 bg-[#C9A961]/10 rounded-lg">
-              <Camera size={24} className="text-[#C9A961]" />
-            </div>
-            <div>
-              <p className="font-semibold text-[#2C2622]">{t('menu.import.photo')}</p>
-              <p className="text-sm text-gray-500">{t('menu.import.photo.desc')}</p>
-            </div>
-          </button>
-
-          {/* File */}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-4 p-5 bg-white rounded-xl shadow-sm active:bg-gray-50 transition-colors text-left"
-          >
-            <div className="p-3 bg-[#C9A961]/10 rounded-lg">
-              <FileUp size={24} className="text-[#C9A961]" />
-            </div>
-            <div>
-              <p className="font-semibold text-[#2C2622]">{t('menu.import.file')}</p>
-              <p className="text-sm text-gray-500">{t('menu.import.file.desc')}</p>
-            </div>
-          </button>
-
-          {/* URL */}
-          <button
-            onClick={() => setShowUrlInput(true)}
-            className="flex items-center gap-4 p-5 bg-white rounded-xl shadow-sm active:bg-gray-50 transition-colors text-left"
-          >
-            <div className="p-3 bg-[#C9A961]/10 rounded-lg">
-              <Link2 size={24} className="text-[#C9A961]" />
-            </div>
-            <div>
-              <p className="font-semibold text-[#2C2622]">{t('menu.import.link')}</p>
-              <p className="text-sm text-gray-500">{t('menu.import.link.desc')}</p>
-            </div>
-          </button>
-        </div>
-
-        {/* URL input field */}
-        {showUrlInput && (
-          <div className="bg-white rounded-xl p-5 shadow-sm space-y-3">
-            <input
-              type="url"
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleUrlImport()}
-              placeholder="https://www.ubereats.com/store/..."
-              autoFocus
-              className="w-full px-4 py-3 rounded-lg border border-gray-200 text-sm focus:border-[#C9A961] outline-none transition-colors"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={handleUrlImport}
-                disabled={!urlInput.trim()}
-                className="flex-1 py-3 bg-[#C9A961] text-white rounded-lg text-sm font-medium active:scale-[0.98] transition-transform disabled:opacity-50"
-              >
-                {t('menu.import.go')}
-              </button>
-              <button
-                onClick={() => { setShowUrlInput(false); setUrlInput('') }}
-                className="px-4 py-3 text-gray-400 active:text-gray-600 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Empty state */}
-        {!showUrlInput && (
-          <div className="text-center py-10 text-gray-400">
-            <p className="text-4xl mb-3">🍽️</p>
-            <p className="text-sm">{t('menu.empty')}</p>
-          </div>
-        )}
-
-        {/* Hidden file inputs */}
-        <input
-          ref={photoInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={(e) => handleFileImport(e, 'photo')}
-          className="hidden"
-        />
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,.pdf"
-          onChange={(e) => handleFileImport(e, 'file')}
-          className="hidden"
-        />
-      </div>
+      <ImportOptions
+        onImportFiles={handleImportFiles}
+        onImportUrl={handleImportUrl}
+        error={displayError || null}
+        onDismissError={() => setDismissedError(error)}
+        onBack={items.length > 0 ? () => setShowImport(false) : undefined}
+      />
     )
   }
 
-  // ── Menu loaded — show items ───────────────────────────────────────────────
-
+  // ── Menu loaded ────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-4">
-      {/* Header + action buttons */}
+    <div className="space-y-4 animate-fade-in">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold font-serif text-[#2C2622]">{t('menu.title')}</h1>
-        <span className="text-xs text-gray-400">
-          {items.length} {t('menu.items')}
-        </span>
+        <div>
+          <h1 className="text-2xl font-bold font-serif text-[#2C2622]">{t('menu.title')}</h1>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {items.length} {t('menu.items')} &middot; {categories.length} {t('menu.categories')}
+          </p>
+        </div>
+        <button
+          onClick={() => setShowImport(true)}
+          className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-[#C9A961] bg-[#C9A961]/10 hover:bg-[#C9A961]/20 active:scale-[0.97] rounded-xl transition-all"
+        >
+          <RefreshCw size={16} />
+          {t('menu.reimport')}
+        </button>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
-          {error}
+      {/* Error */}
+      {displayError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-start gap-2">
+          <span className="flex-1">{displayError}</span>
+          <button onClick={() => setDismissedError(error)} className="shrink-0 p-2 -mr-1 rounded-md text-red-400 active:bg-red-100">
+            <X size={14} />
+          </button>
         </div>
       )}
+
+      {/* Enrich descriptions button — show when items lack descriptions */}
+      {(() => {
+        const missingDesc = items.filter((i) => !i.description?.trim()).length
+        if (missingDesc === 0 || !restaurant?.cuisine_profile_id) return null
+        return (
+          <button
+            onClick={() => enrichDescriptions(restaurant.cuisine_profile_id!)}
+            disabled={enriching}
+            className="w-full flex items-center gap-3 bg-[#C9A961]/5 hover:bg-[#C9A961]/10 border border-[#C9A961]/20 rounded-xl px-4 py-3 transition-all active:scale-[0.98] disabled:opacity-60"
+          >
+            {enriching ? (
+              <Loader2 size={18} className="animate-spin text-[#C9A961] shrink-0" />
+            ) : (
+              <FileText size={18} className="text-[#C9A961] shrink-0" />
+            )}
+            <div className="flex-1 text-left">
+              <p className="text-sm font-medium text-[#2C2622]">
+                {enriching ? t('menu.enriching') : t('menu.enrichDescriptions')}
+              </p>
+              <p className="text-xs text-[#2C2622]/40">
+                {missingDesc} {t('menu.noDescription')}
+              </p>
+            </div>
+          </button>
+        )
+      })()}
 
       {/* Category pills */}
       {categories.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide -mx-4 px-4">
           <button
             onClick={() => setActiveCategory(null)}
-            className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+            className={`shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
               !activeCategory
-                ? 'bg-[#C9A961] text-white'
-                : 'bg-white text-gray-600 active:bg-gray-100'
+                ? 'bg-[#2C2622] text-white shadow-sm'
+                : 'bg-white text-gray-500 hover:bg-gray-50 active:bg-gray-100 border border-gray-100'
             }`}
           >
-            {t('menu.all')}
+            {t('menu.all')} <span className="ml-1 text-xs opacity-60">{items.length}</span>
           </button>
           {categories.map((cat) => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat === activeCategory ? null : cat)}
-              className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              className={`shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 activeCategory === cat
-                  ? 'bg-[#C9A961] text-white'
-                  : 'bg-white text-gray-600 active:bg-gray-100'
+                  ? 'bg-[#2C2622] text-white shadow-sm'
+                  : 'bg-white text-gray-500 hover:bg-gray-50 active:bg-gray-100 border border-gray-100'
               }`}
             >
-              {cat}
+              {cat} <span className="ml-1 text-xs opacity-60">{categoryItemCounts[cat]}</span>
             </button>
           ))}
         </div>
       )}
 
       {/* Selection bar */}
-      {items.length > 0 && (
-        <div className="flex items-center justify-between bg-white rounded-xl px-4 py-3 shadow-sm">
-          <button
-            onClick={selectAll}
-            className="text-sm text-[#C9A961] font-medium"
-          >
-            {selectedIds.size === filteredItems.length && selectedIds.size > 0
-              ? t('menu.deselectAll')
-              : t('menu.selectAll')}
-          </button>
+      <div className="flex items-center justify-between bg-white rounded-2xl px-4 py-3 shadow-sm border border-gray-100">
+        <button onClick={selectAll} className="text-sm text-[#C9A961] font-semibold py-1">
+          {selectedIds.size === filteredItems.length && selectedIds.size > 0
+            ? t('menu.deselectAll') : t('menu.selectAll')}
+        </button>
+        <div className="flex items-center gap-2">
+          {/* Generate category button */}
+          {activeCategory && selectedIds.size === 0 && (
+            <button
+              onClick={() => navigate('/photos', { state: { selectedIds: filteredItems.map(i => i.id) } })}
+              className="flex items-center gap-1.5 px-3 py-2 bg-[#C9A961]/10 text-[#C9A961] rounded-lg text-xs font-semibold hover:bg-[#C9A961]/20 active:scale-[0.97] transition-all"
+            >
+              <Sparkles size={13} />
+              {t('menu.generateCategory')} ({filteredItems.length})
+            </button>
+          )}
           {selectedIds.size > 0 && (
             <button
               onClick={() => navigate('/photos', { state: { selectedIds: [...selectedIds] } })}
-              className="px-4 py-2 bg-[#C9A961] text-white rounded-lg text-sm font-medium active:scale-95 transition-transform"
+              className="px-4 py-2.5 bg-[#C9A961] hover:bg-[#C9A961]/90 text-white rounded-xl text-sm font-semibold active:scale-[0.97] transition-all shadow-sm"
             >
               {t('menu.generateSelected')} ({selectedIds.size})
             </button>
           )}
         </div>
-      )}
+      </div>
 
       {/* Items list */}
-      <div className="space-y-2">
-        {filteredItems.map((item) => (
-          <div
-            key={item.id}
-            className="flex items-center gap-3 bg-white rounded-xl p-3.5 shadow-sm"
-          >
-            {/* Checkbox */}
-            <button
-              onClick={() => toggleSelect(item.id)}
-              className={`w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-                selectedIds.has(item.id)
-                  ? 'bg-[#C9A961] border-[#C9A961]'
-                  : 'border-gray-300'
-              }`}
-            >
-              {selectedIds.has(item.id) && <Check size={14} className="text-white" />}
-            </button>
-
-            {/* Thumbnail */}
-            {item.image_url ? (
-              <img
-                src={item.image_url}
-                alt={item.nom}
-                className="w-14 h-14 rounded-lg object-cover shrink-0"
-              />
-            ) : (
-              <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
-                <Camera size={18} className="text-gray-300" />
-              </div>
-            )}
-
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-[#2C2622] text-sm truncate">{item.nom}</p>
-              {item.description && (
-                <p className="text-xs text-gray-400 truncate">{item.description}</p>
-              )}
-              <p className="text-xs text-gray-500 mt-0.5">
-                {item.categorie && (
-                  <span className="text-[#C9A961]">{item.categorie}</span>
-                )}
-                {item.categorie && item.prix ? ' · ' : ''}
-                {item.prix && <span>{item.prix}</span>}
-              </p>
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                onClick={() => setEditingItem(item)}
-                className="p-2 text-gray-400 active:text-[#C9A961] transition-colors"
-              >
-                <Pencil size={16} />
-              </button>
-              <button
-                onClick={() => deleteItem(item.id)}
-                className="p-2 text-gray-400 active:text-red-500 transition-colors"
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
+      <div className="space-y-2.5">
+        {filteredItems.map((item, i) => (
+          <div key={item.id} className="animate-fade-in" style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}>
+            <MenuItemCard
+              item={item}
+              selected={selectedIds.has(item.id)}
+              enhancing={enhancingId === item.id}
+              onToggleSelect={() => toggleSelect(item.id)}
+              onEdit={() => setEditingItem(item)}
+              onDelete={() => deleteItem(item.id)}
+              onDropPhoto={(base64) => handlePhotoUpload(item, base64)}
+            />
           </div>
         ))}
       </div>
 
-      {/* Generate all button (sticky bottom) */}
+      {/* Empty category state */}
+      {filteredItems.length === 0 && activeCategory && (
+        <div className="text-center py-12 text-gray-300">
+          <UtensilsCrossed size={32} className="mx-auto mb-3 opacity-50" />
+          <p className="text-sm">{t('menu.category.empty')}</p>
+        </div>
+      )}
+
+      {/* Sticky generate button */}
       <div className="sticky bottom-20 lg:bottom-4 pt-2">
         <button
           onClick={() => navigate('/photos', { state: { selectedIds: selectedIds.size > 0 ? [...selectedIds] : items.map(i => i.id) } })}
-          className="w-full py-4 bg-[#C9A961] text-white rounded-xl text-sm font-semibold shadow-lg active:scale-[0.98] transition-transform"
+          className="w-full py-4 bg-gradient-to-r from-[#C9A961] to-[#B8944E] hover:from-[#B8944E] hover:to-[#A88540] text-white rounded-2xl font-semibold shadow-lg shadow-[#C9A961]/20 active:scale-[0.98] transition-all"
         >
-          {selectedIds.size > 0
-            ? `${t('menu.generateSelected')} (${selectedIds.size})`
-            : t('menu.generateAll')}
+          {selectedIds.size > 0 ? `${t('menu.generateSelected')} (${selectedIds.size})` : t('menu.generateAll')}
         </button>
       </div>
 
-      {/* Bottom sheet — Edit item */}
       {editingItem && (
         <EditBottomSheet
           item={editingItem}
-          onSave={async (updates) => {
-            await updateItem(editingItem.id, updates)
-            setEditingItem(null)
-          }}
+          onSave={async (updates) => { await updateItem(editingItem.id, updates); setEditingItem(null) }}
           onClose={() => setEditingItem(null)}
         />
       )}
-    </div>
-  )
-}
-
-// ── Edit Bottom Sheet Component ──────────────────────────────────────────────
-
-function EditBottomSheet({
-  item,
-  onSave,
-  onClose,
-}: {
-  item: MenuItem
-  onSave: (updates: Partial<MenuItem>) => Promise<void>
-  onClose: () => void
-}) {
-  const { t } = useI18n()
-  const [nom, setNom] = useState(item.nom)
-  const [description, setDescription] = useState(item.description ?? '')
-  const [prix, setPrix] = useState(item.prix ?? '')
-  const [categorie, setCategorie] = useState(item.categorie ?? '')
-  const [saving, setSaving] = useState(false)
-
-  async function handleSave() {
-    setSaving(true)
-    await onSave({ nom, description, prix, categorie })
-    setSaving(false)
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-
-      {/* Sheet */}
-      <div className="relative w-full max-w-lg bg-white rounded-t-2xl p-5 pb-8 space-y-4 animate-slide-up">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-[#2C2622]">{t('menu.edit')}</h3>
-          <button onClick={onClose} className="p-1 text-gray-400">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">{t('menu.item.name')}</label>
-            <input
-              type="text"
-              value={nom}
-              onChange={(e) => setNom(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg border border-gray-200 text-sm focus:border-[#C9A961] outline-none transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">{t('menu.item.desc')}</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className="w-full px-4 py-3 rounded-lg border border-gray-200 text-sm focus:border-[#C9A961] outline-none transition-colors resize-none"
-            />
-          </div>
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-1">{t('menu.item.price')}</label>
-              <input
-                type="text"
-                value={prix}
-                onChange={(e) => setPrix(e.target.value)}
-                placeholder="12.90€"
-                className="w-full px-4 py-3 rounded-lg border border-gray-200 text-sm focus:border-[#C9A961] outline-none transition-colors"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-1">{t('menu.item.category')}</label>
-              <input
-                type="text"
-                value={categorie}
-                onChange={(e) => setCategorie(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg border border-gray-200 text-sm focus:border-[#C9A961] outline-none transition-colors"
-              />
-            </div>
-          </div>
-        </div>
-
-        <button
-          onClick={handleSave}
-          disabled={saving || !nom.trim()}
-          className="w-full py-3.5 bg-[#C9A961] text-white rounded-xl text-sm font-semibold active:scale-[0.98] transition-transform disabled:opacity-50"
-        >
-          {saving ? <Loader2 size={16} className="animate-spin mx-auto" /> : t('common.save')}
-        </button>
-      </div>
     </div>
   )
 }

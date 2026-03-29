@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
 import { useI18n } from '@/lib/i18n'
 
@@ -7,10 +7,11 @@ export function LoginPage() {
   const { t } = useI18n()
   const { signIn, signUp } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [isSignUp, setIsSignUp] = useState(false)
+  const [isSignUp, setIsSignUp] = useState(searchParams.get('signup') === '1')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -79,7 +80,7 @@ export function LoginPage() {
         </button>
 
         <p className="text-center text-sm text-gray-500">
-          {isSignUp ? 'Déjà un compte ?' : 'Pas encore de compte ?'}{' '}
+          {isSignUp ? t('landing.alreadyAccount') : t('landing.noAccount')}{' '}
           <button
             type="button"
             onClick={() => setIsSignUp(!isSignUp)}
@@ -89,6 +90,14 @@ export function LoginPage() {
           </button>
         </p>
       </form>
+
+      {/* Back to landing */}
+      <button
+        onClick={() => navigate('/')}
+        className="mt-8 text-xs text-gray-400 hover:text-[#C9A961] transition-colors"
+      >
+        &larr; {t('landing.howItWorks')}
+      </button>
     </div>
   )
 }

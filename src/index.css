@@ -56,3 +56,43 @@ html {
 .animate-slide-up {
   animation: slide-up 0.3s ease-out;
 }
+
+/* ── Landing page staggered entrance ─────────────────────────────────────── */
+.landing-stagger-1 { animation: fade-in 0.6s ease-out both 0.1s; }
+.landing-stagger-2 { animation: fade-in 0.6s ease-out both 0.2s; }
+.landing-stagger-3 { animation: fade-in 0.6s ease-out both 0.35s; }
+.landing-stagger-4 { animation: fade-in 0.6s ease-out both 0.5s; }
+.landing-stagger-5 { animation: fade-in 0.6s ease-out both 0.65s; }
+
+/* ── Photos page animations ──────────────────────────────────────────────── */
+@keyframes photo-reveal {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.animate-photo-reveal {
+  animation: photo-reveal 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes shimmer-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+.animate-shimmer-pulse {
+  animation: shimmer-pulse 2s ease-in-out infinite;
+}
+
+@keyframes progress-indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+.animate-progress-indeterminate {
+  animation: progress-indeterminate 1.8s ease-in-out infinite;
+}
+
+@keyframes fullscreen-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-fullscreen-enter {
+  animation: fullscreen-enter 0.2s ease-out;
+}

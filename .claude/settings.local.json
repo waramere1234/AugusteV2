@@ -13,7 +13,18 @@
       "Bash(npm run:*)",
       "Bash(git init:*)",
       "Bash(git remote:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git rm:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "mcp__claude_ai_Supabase__get_edge_function",
+      "Bash(grep:*)",
+      "mcp__claude_ai_Supabase__apply_migration",
+      "mcp__claude_ai_Supabase__deploy_edge_function",
+      "Bash(cat:*)",
+      "Bash(python:*)",
+      "WebFetch(domain:cgsykmcohllfuwtessbp.supabase.co)",
+      "Bash(curl:*)"
     ]
   }
 }

@@ -1,5 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase, ensureSession } from '@/lib/supabase'
+import { fileToBase64, delay, guessMimeType, extractEdgeFunctionError } from '@/lib/menuHelpers'
+import { getCuisineProfile } from '@/constants/cuisineProfiles'
 import type { MenuItem } from '@/types'
 
 interface MenuRow {
@@ -20,14 +22,18 @@ interface UseMenusReturn {
   categories: string[]
   loading: boolean
   extracting: boolean
+  enriching: boolean
   extractedItems: string[]
   error: string | null
-  importFromFile: (file: File, restaurantId: string) => Promise<void>
+  importFromFiles: (files: File[], restaurantId: string) => Promise<void>
   importFromUrl: (url: string, restaurantId: string) => Promise<void>
+  enrichDescriptions: (cuisineProfileId: string) => Promise<void>
   updateItem: (itemId: string, updates: Partial<MenuItem>) => Promise<void>
   deleteItem: (itemId: string) => Promise<void>
   reload: () => void
 }
+
+export type { MenuRow }
 
 export function useMenus(restaurantId: string | null): UseMenusReturn {
   const [menu, setMenu] = useState<MenuRow | null>(null)
@@ -35,66 +41,46 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
   const [categories, setCategories] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [extracting, setExtracting] = useState(false)
+  const [enriching, setEnriching] = useState(false)
   const [extractedItems, setExtractedItems] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const cancelledRef = useRef(false)
 
-  // Load the latest menu + items for this restaurant
+  useEffect(() => () => { cancelledRef.current = true }, [])
+
+  // ── Load menu + items ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (!restaurantId) {
-      setLoading(false)
-      return
-    }
+    if (!restaurantId) { setLoading(false); return }
     let cancelled = false
 
     async function load() {
       setLoading(true)
       setError(null)
 
-      // Get the most recent menu for this restaurant
       const { data: menuData, error: menuError } = await supabase
-        .from('menus')
-        .select('*')
+        .from('menus').select('*')
         .eq('restaurant_id', restaurantId)
         .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+        .limit(1).maybeSingle()
 
       if (cancelled) return
-      if (menuError) {
-        setError(menuError.message)
-        setLoading(false)
-        return
-      }
-
-      if (!menuData) {
-        setMenu(null)
-        setItems([])
-        setCategories([])
-        setLoading(false)
-        return
-      }
+      if (menuError) { setError(menuError.message); setLoading(false); return }
+      if (!menuData) { setMenu(null); setItems([]); setCategories([]); setLoading(false); return }
 
       setMenu(menuData as MenuRow)
 
-      // Load items for this menu
       const { data: itemsData, error: itemsError } = await supabase
-        .from('menu_items')
-        .select('*')
+        .from('menu_items').select('*')
         .eq('menu_id', menuData.id)
         .order('position', { ascending: true })
 
       if (cancelled) return
-      if (itemsError) {
-        setError(itemsError.message)
-        setLoading(false)
-        return
-      }
+      if (itemsError) { setError(itemsError.message); setLoading(false); return }
 
       const menuItems = (itemsData ?? []) as MenuItem[]
       setItems(menuItems)
 
-      // Build category list, respecting category_order if set
       const order = menuData.category_order as string[] | null
       const allCats = [...new Set(menuItems.map((i) => i.categorie).filter(Boolean))]
       if (order?.length) {
@@ -104,7 +90,6 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
       } else {
         setCategories(allCats)
       }
-
       setLoading(false)
     }
 
@@ -114,192 +99,188 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), [])
 
-  // Import from file (photo or PDF)
-  const importFromFile = useCallback(async (file: File, restId: string) => {
-    // Validate file before sending
-    if (file.size > MAX_FILE_SIZE) {
-      setError(`Fichier trop volumineux (${Math.round(file.size / 1024 / 1024)} Mo). Maximum : 20 Mo.`)
-      return
+  // ── Shared: animate items + save to DB ──────────────────────────────────────
+  async function processExtraction(
+    aiItems: Record<string, unknown>[],
+    restId: string,
+    fileName: string,
+    sourceType: 'photo' | 'file' | 'url',
+    includeImageUrl: boolean,
+  ) {
+    // Animate (cancellable)
+    for (const item of aiItems) {
+      if (cancelledRef.current) break
+      setExtractedItems((prev) => [...prev, (item.nom as string) ?? '?'])
+      await delay(150)
     }
 
-    const mimeType = file.type || guessMimeType(file.name)
-    if (!mimeType || !ACCEPTED_TYPES.includes(mimeType)) {
-      setError('Format non supporté. Utilisez une image (JPG, PNG, WebP) ou un PDF.')
-      return
+    // Create menu row
+    const { data: menuRow, error: menuError } = await supabase
+      .from('menus')
+      .insert({ restaurant_id: restId, file_name: fileName, source_type: sourceType })
+      .select('id').single()
+    if (menuError) throw new Error(menuError.message)
+
+    // Build & insert item rows
+    const rows = aiItems.map((item, i) => ({
+      menu_id: menuRow.id,
+      nom: item.nom ?? '', categorie: item.categorie ?? '',
+      description: item.description ?? '', prix: item.prix ?? '',
+      style: item.style ?? '', item_type: item.item_type ?? 'plat',
+      ...(includeImageUrl && item.image_url ? { image_url: item.image_url } : {}),
+      tailles: item.tailles ?? [], supplements: item.supplements ?? [],
+      accompagnements: item.accompagnements ?? [],
+      allergenes: item.allergenes ?? [], labels: item.labels ?? [],
+      position: i,
+    }))
+
+    const { error: insertError } = await supabase.from('menu_items').insert(rows)
+    if (insertError) throw new Error(insertError.message)
+
+    reload()
+  }
+
+  // ── Import from files (photos and/or PDFs) ─────────────────────────────────
+  const importFromFiles = useCallback(async (files: File[], restId: string) => {
+    for (const file of files) {
+      if (file.size > MAX_FILE_SIZE) { setError('error.menu.fileTooLarge'); return }
+      const mime = file.type || guessMimeType(file.name)
+      if (!mime || !ACCEPTED_TYPES.includes(mime)) { setError('error.menu.invalidFormat'); return }
     }
 
-    setExtracting(true)
-    setExtractedItems([])
-    setError(null)
+    setExtracting(true); setExtractedItems([]); setError(null)
+    try {
+      await ensureSession()
+      const fileParts = await Promise.all(files.map(async (file) => {
+        const mimeType = file.type || guessMimeType(file.name)
+        const base64 = await fileToBase64(file)
+        return { inlineData: { data: base64, mimeType } }
+      }))
 
+      const { data, error: fnError } = await supabase.functions.invoke('extract-menu', {
+        body: { fileParts },
+      })
+
+      if (fnError) throw new Error(await extractEdgeFunctionError(fnError))
+      if (!data?.success) throw new Error(data?.error ?? 'error.menu.extractionFailed')
+
+      const aiItems = data.data as Record<string, unknown>[]
+      if (!aiItems?.length) throw new Error('error.menu.noItems')
+
+      const hasPdf = files.some(f => (f.type || guessMimeType(f.name)) === 'application/pdf')
+      const sourceType = files.length === 1 && !hasPdf ? 'photo' as const : 'file' as const
+      const fileName = files.length === 1 ? files[0].name : `${files.length} fichiers`
+      await processExtraction(aiItems, restId, fileName, sourceType, false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'error.menu.extractionError')
+    } finally {
+      setExtracting(false)
+    }
+  }, [reload])
+
+  // ── Import from URL (Uber Eats, Deliveroo, etc.) ───────────────────────────
+  const importFromUrl = useCallback(async (url: string, restId: string) => {
+    setExtracting(true); setExtractedItems([]); setError(null)
+    try {
+      await ensureSession()
+      const { data, error: fnError } = await supabase.functions.invoke('extract-menu-from-url', {
+        body: { url },
+      })
+
+      if (fnError) throw new Error(await extractEdgeFunctionError(fnError))
+      if (!data?.success) throw new Error(data?.error ?? 'error.menu.extractionFailed')
+
+      const aiItems = data.data as Record<string, unknown>[]
+      if (!aiItems?.length) throw new Error('error.menu.noItems')
+
+      await processExtraction(aiItems, restId, url, 'url', true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'error.menu.extractionError')
+    } finally {
+      setExtracting(false)
+    }
+  }, [reload])
+
+  // ── Enrich descriptions (template match + AI fallback) ─────────────────────
+  const enrichDescriptions = useCallback(async (cuisineProfileId: string) => {
+    const itemsWithoutDesc = items.filter((i) => !i.description?.trim())
+    if (itemsWithoutDesc.length === 0) return
+
+    setEnriching(true)
     try {
       await ensureSession()
 
-      // Convert file to base64
-      const base64 = await fileToBase64(file)
+      const profile = getCuisineProfile(cuisineProfileId)
+      const cuisineContext = profile ? {
+        bread: profile.bread,
+        serving: profile.serving,
+        sauce: profile.sauce,
+        ambiance: profile.ambiance,
+        cultural_context: profile.cultural_context,
+      } : null
 
-      const { data, error: fnError } = await supabase.functions.invoke('extract-menu', {
+      const { data, error: fnError } = await supabase.functions.invoke('enrich-descriptions', {
         body: {
-          fileParts: [{ data: base64, mimeType }],
-          fileName: file.name,
-          restaurantId: restId,
+          items: itemsWithoutDesc.map((i) => ({ id: i.id, name: i.nom, category: i.categorie })),
+          cuisineProfileId,
+          cuisineContext,
         },
       })
 
-      if (fnError) {
-        const message = await extractEdgeFunctionError(fnError)
-        throw new Error(message)
+      if (fnError) throw new Error(fnError.message)
+      if (!data?.success) throw new Error(data?.error || 'Erreur enrichissement')
+
+      const descriptions: { itemId: string; description: string }[] = data.descriptions ?? []
+
+      // Batch update DB + local state
+      for (const desc of descriptions) {
+        await supabase.from('menu_items')
+          .update({ description: desc.description })
+          .eq('id', desc.itemId)
       }
 
-      if (!data) throw new Error('Aucune donnée retournée par le serveur')
-
-      // Animate extracted items
-      const extractedNames: string[] = (data.items ?? data.menuItems ?? []).map(
-        (i: { nom?: string; name?: string }) => i.nom ?? i.name ?? '?',
-      )
-      for (const name of extractedNames) {
-        setExtractedItems((prev) => [...prev, name])
-        await delay(150)
-      }
-
-      // Reload data from DB
-      reload()
+      setItems((prev) => prev.map((item) => {
+        const match = descriptions.find((d) => d.itemId === item.id)
+        return match ? { ...item, description: match.description } : item
+      }))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur extraction')
+      setError(err instanceof Error ? err.message : 'Erreur enrichissement')
     } finally {
-      setExtracting(false)
+      setEnriching(false)
     }
-  }, [reload])
+  }, [items])
 
-  // Import from URL (Uber Eats, Deliveroo, etc.)
-  const importFromUrl = useCallback(async (url: string, restId: string) => {
-    setExtracting(true)
-    setExtractedItems([])
-    setError(null)
-
-    try {
-      await ensureSession()
-
-      const { data, error: fnError } = await supabase.functions.invoke('extract-menu-from-url', {
-        body: { url, restaurantId: restId },
-      })
-
-      if (fnError) {
-        const message = await extractEdgeFunctionError(fnError)
-        throw new Error(message)
-      }
-
-      if (!data) throw new Error('Aucune donnée retournée par le serveur')
-
-      const extractedNames: string[] = (data.items ?? data.menuItems ?? []).map(
-        (i: { nom?: string; name?: string }) => i.nom ?? i.name ?? '?',
-      )
-      for (const name of extractedNames) {
-        setExtractedItems((prev) => [...prev, name])
-        await delay(150)
-      }
-
-      reload()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur extraction URL')
-    } finally {
-      setExtracting(false)
-    }
-  }, [reload])
-
-  // Update a single menu item
+  // ── CRUD ────────────────────────────────────────────────────────────────────
   const updateItem = useCallback(async (itemId: string, updates: Partial<MenuItem>) => {
-    const { error: updateError } = await supabase
-      .from('menu_items')
-      .update(updates)
-      .eq('id', itemId)
+    const { error: e } = await supabase.from('menu_items').update(updates).eq('id', itemId)
+    if (e) { setError(e.message); return }
+    setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, ...updates } : i)))
 
-    if (updateError) {
-      setError(updateError.message)
-      return
+    // Auto-learning: if user edited description, save to dish_templates
+    if (updates.description) {
+      const item = items.find((i) => i.id === itemId)
+      if (item) {
+        const canonical = item.nom.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+        supabase.from('dish_templates').upsert({
+          cuisine_profile_id: menu?.cuisine_profile ?? 'unknown',
+          canonical_name: canonical,
+          display_name: item.nom,
+          description: updates.description,
+          category: item.categorie || 'plat',
+          source: 'user_validated',
+        }, { onConflict: 'cuisine_profile_id,canonical_name' }).then(() => {})
+      }
     }
+  }, [items, menu])
 
-    setItems((prev) =>
-      prev.map((i) => (i.id === itemId ? { ...i, ...updates } : i)),
-    )
-  }, [])
-
-  // Delete a menu item
   const deleteItem = useCallback(async (itemId: string) => {
-    const { error: deleteError } = await supabase
-      .from('menu_items')
-      .delete()
-      .eq('id', itemId)
-
-    if (deleteError) {
-      setError(deleteError.message)
-      return
-    }
-
+    const { error: e } = await supabase.from('menu_items').delete().eq('id', itemId)
+    if (e) { setError(e.message); return }
     setItems((prev) => prev.filter((i) => i.id !== itemId))
   }, [])
 
   return {
-    menu,
-    items,
-    categories,
-    loading,
-    extracting,
-    extractedItems,
-    error,
-    importFromFile,
-    importFromUrl,
-    updateItem,
-    deleteItem,
-    reload,
+    menu, items, categories, loading, extracting, enriching, extractedItems, error,
+    importFromFiles, importFromUrl, enrichDescriptions, updateItem, deleteItem, reload,
   }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      // Remove data:xxx;base64, prefix
-      resolve(result.includes(',') ? result.split(',')[1] : result)
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
-
-function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms))
-}
-
-function guessMimeType(fileName: string): string {
-  const ext = fileName.split('.').pop()?.toLowerCase()
-  const map: Record<string, string> = {
-    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-    webp: 'image/webp', heic: 'image/heic', pdf: 'application/pdf',
-  }
-  return map[ext ?? ''] ?? ''
-}
-
-async function extractEdgeFunctionError(
-  fnError: { message?: string; context?: unknown },
-): Promise<string> {
-  const ctx = fnError.context
-  if (ctx && typeof ctx === 'object') {
-    // context may be a Response (needs .json())
-    if ('json' in ctx && typeof (ctx as Response).json === 'function') {
-      try {
-        const body = await (ctx as Response).json()
-        if (typeof body.error === 'string') return body.error
-        if (typeof body.message === 'string') return body.message
-      } catch { /* not parseable */ }
-    }
-    // context may already be parsed JSON
-    const obj = ctx as Record<string, unknown>
-    if (typeof obj.error === 'string') return obj.error
-    if (typeof obj.message === 'string') return obj.message
-  }
-  return fnError.message || 'Extraction échouée'
 }

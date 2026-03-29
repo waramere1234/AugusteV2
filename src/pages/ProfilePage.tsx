@@ -23,7 +23,7 @@ export function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Translate known error keys, fallback to raw message
-  const I18N_ERRORS = ['error.google.details', 'error.google.search', 'error.unknown', 'error.photo.tooLarge', 'error.photo.invalidType'] as const
+  const I18N_ERRORS = ['error.google.details', 'error.google.search', 'error.unknown'] as const
   type EK = typeof I18N_ERRORS[number]
   const translatedError = error && (I18N_ERRORS.includes(error as EK) ? t(error as EK) : error)
 
@@ -100,21 +100,21 @@ export function ProfilePage() {
             {saving ? <Loader2 size={14} className="animate-spin text-[#C9A961] shrink-0" />
               : saved ? <Check size={14} className="text-[#7C9A6B] shrink-0" /> : null}
           </div>
-          <p className="text-xs text-gray-400 truncate mt-0.5">{user?.email}</p>
+          <p className="text-xs text-gray-500 truncate mt-0.5">{user?.email}</p>
 
           {/* Step indicators */}
           <div className="mt-2 flex items-center gap-1.5">
             {stepDefs.map((step, i) => (
               <div key={i} className="flex items-center gap-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${
-                  step.done ? 'bg-[#7C9A6B]' : 'bg-gray-200'
+                  step.done ? 'bg-[#7C9A6B]' : 'bg-gray-300'
                 }`} />
                 <span className={`text-[10px] font-medium transition-colors duration-300 ${
-                  step.done ? 'text-[#7C9A6B]' : 'text-gray-300'
+                  step.done ? 'text-[#7C9A6B]' : 'text-gray-400'
                 }`}>
                   {step.label}
                 </span>
-                {i < stepDefs.length - 1 && <span className="text-gray-200 text-[10px] mx-0.5">·</span>}
+                {i < stepDefs.length - 1 && <span className="text-gray-300 text-[10px] mx-0.5">·</span>}
               </div>
             ))}
             {completionPct === 100 && (
@@ -129,7 +129,7 @@ export function ProfilePage() {
       {/* ── Onboarding hint (first visit only) ───────────────────────────── */}
       {isNewRestaurant && (
         <div className="bg-[#C9A961]/[0.06] border border-[#C9A961]/15 rounded-xl px-4 py-3 animate-fade-in">
-          <p className="text-sm text-[#2C2622]/70 leading-snug">
+          <p className="text-sm text-[#2C2622]/80 leading-snug">
             {t('profile.onboarding')}
           </p>
         </div>
@@ -142,7 +142,7 @@ export function ProfilePage() {
           <button
             onClick={clearError}
             aria-label={t('common.dismiss')}
-            className="shrink-0 p-1 rounded-md text-red-400 active:bg-red-100 transition-colors"
+            className="shrink-0 p-2 -mr-1 rounded-md text-red-400 active:bg-red-100 transition-colors"
           >
             <X size={14} />
           </button>
@@ -153,7 +153,7 @@ export function ProfilePage() {
       <section className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 space-y-4">
         {/* Name */}
         <div>
-          <label htmlFor="resto-name" className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1.5">
+          <label htmlFor="resto-name" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
             {t('profile.name')}
           </label>
           <input
@@ -163,7 +163,7 @@ export function ProfilePage() {
             value={restaurant?.name ?? ''}
             onChange={(e) => updateField('name', e.target.value)}
             placeholder={t('profile.name.placeholder')}
-            className="w-full text-lg font-semibold text-[#2C2622] border-b-2 border-gray-100 focus:border-[#C9A961] focus-visible:ring-2 focus-visible:ring-[#C9A961]/20 outline-none pb-2 bg-transparent transition-colors placeholder:text-gray-300"
+            className="w-full text-lg font-semibold text-[#2C2622] border-b-2 border-gray-100 focus:border-[#C9A961] focus-visible:ring-2 focus-visible:ring-[#C9A961]/20 outline-none pb-2 bg-transparent transition-colors placeholder:text-gray-400"
           />
         </div>
 
@@ -171,7 +171,7 @@ export function ProfilePage() {
         {(restaurant?.google_place_id || restaurant?.address != null || restaurant?.phone != null) && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
             <div>
-              <label htmlFor="resto-address" className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
+              <label htmlFor="resto-address" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
                 {t('profile.address')}
               </label>
               <input
@@ -183,7 +183,7 @@ export function ProfilePage() {
               />
             </div>
             <div>
-              <label htmlFor="resto-phone" className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
+              <label htmlFor="resto-phone" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
                 {t('profile.phone')}
               </label>
               <input
@@ -216,9 +216,9 @@ export function ProfilePage() {
 
       {/* ── Restaurant photo ────────────────────────────────────────────────── */}
       <section className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-        <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
+        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
           {t('profile.photo')}
-          <span className="ml-1.5 normal-case tracking-normal text-gray-300">({t('profile.photo.optional')})</span>
+          <span className="ml-1.5 normal-case tracking-normal text-gray-400">({t('profile.photo.optional')})</span>
         </label>
 
         {restaurant?.style_photo_url ? (
@@ -240,7 +240,7 @@ export function ProfilePage() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="w-full h-32 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 text-gray-300 hover:border-gray-300 hover:text-gray-400 active:border-[#C9A961] active:text-[#C9A961] transition-colors"
+            className="w-full h-32 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-gray-300 hover:text-gray-500 active:border-[#C9A961] active:text-[#C9A961] transition-colors"
           >
             {uploading ? (
               <Loader2 size={28} className="animate-spin" />
@@ -280,8 +280,8 @@ export function ProfilePage() {
           }`}>
             {credits?.remaining ?? '—'}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">{t('profile.credits')}</p>
-          <button className="mt-3 w-full py-2 bg-[#C9A961] hover:bg-[#C9A961]/90 text-white text-xs font-medium rounded-lg active:scale-95 transition-all shadow-sm shadow-[#C9A961]/20">
+          <p className="text-xs text-gray-500 mt-0.5">{t('profile.credits')}</p>
+          <button className="mt-3 w-full py-2.5 bg-[#C9A961] hover:bg-[#C9A961]/90 text-white text-xs font-medium rounded-lg active:scale-95 transition-all shadow-sm shadow-[#C9A961]/20">
             {t('common.buy')}
           </button>
         </div>
@@ -290,7 +290,7 @@ export function ProfilePage() {
       {/* ── Logout ──────────────────────────────────────────────────────────── */}
       <button
         onClick={handleLogout}
-        className="w-full flex items-center justify-center gap-2 py-3.5 text-sm text-gray-400 rounded-xl active:text-red-500 active:bg-red-50 transition-colors"
+        className="w-full flex items-center justify-center gap-2 py-3.5 text-sm text-gray-500 rounded-xl hover:text-gray-600 active:text-red-500 active:bg-red-50 transition-colors"
       >
         <LogOut size={16} />
         {t('auth.logout')}

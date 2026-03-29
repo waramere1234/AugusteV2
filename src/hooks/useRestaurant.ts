@@ -156,7 +156,8 @@ export function useRestaurant(): UseRestaurantReturn {
     }
   }, [])
 
-  // Apply Google details to the restaurant
+  // Apply Google details to the restaurant — saves IMMEDIATELY (not debounced)
+  // because this is a deliberate user action and must persist before navigation
   const applyGoogleData = useCallback(async (placeId: string) => {
     if (!restaurant) return
     try {
@@ -164,32 +165,53 @@ export function useRestaurant(): UseRestaurantReturn {
       const { data, error: fnError } = await supabase.functions.invoke('get-restaurant-details', {
         body: { placeId },
       })
-      if (fnError || !data) {
-        setError('error.google.details')
+      if (fnError || !data?.success) {
+        setError(data?.error ?? 'error.google.details')
         return
       }
 
-      const gData = data as GoogleBusinessData
-      setRestaurant((prev) => {
-        if (!prev) return prev
-        const updated: Restaurant = {
-          ...prev,
-          name: gData.name || prev.name,
-          address: gData.address || prev.address,
-          phone: gData.phone || prev.phone,
-          description: gData.description || prev.description,
-          google_place_id: gData.place_id,
-          google_business_data: gData,
-          cuisine_types: gData.cuisine_types?.length ? gData.cuisine_types : prev.cuisine_types,
-          cuisine_profile_id: gData.detected_cuisine_profile || prev.cuisine_profile_id,
-        }
-        saveToDb(updated)
-        return updated
-      })
+      // Edge function returns { success, restaurant: {...} }
+      const gData = data.restaurant as GoogleBusinessData
+      const updated: Restaurant = {
+        ...restaurant,
+        name: gData.name || restaurant.name,
+        address: gData.address || restaurant.address,
+        phone: gData.phone || restaurant.phone,
+        description: gData.description || restaurant.description,
+        google_place_id: gData.place_id,
+        google_business_data: gData,
+        cuisine_types: gData.cuisine_types?.length ? gData.cuisine_types : restaurant.cuisine_types,
+        cuisine_profile_id: gData.detected_cuisine_profile || restaurant.cuisine_profile_id,
+      }
+      setRestaurant(updated)
+
+      // Immediate save — no debounce
+      setSaving(true)
+      const { error: saveError } = await supabase
+        .from('restaurants')
+        .update({
+          name: updated.name,
+          address: updated.address,
+          phone: updated.phone,
+          description: updated.description,
+          google_place_id: updated.google_place_id,
+          google_business_data: updated.google_business_data as unknown as Record<string, unknown>,
+          cuisine_types: updated.cuisine_types,
+          cuisine_profile_id: updated.cuisine_profile_id,
+        })
+        .eq('id', updated.id)
+      setSaving(false)
+      if (saveError) {
+        setError(saveError.message)
+      } else {
+        setSaved(true)
+        if (savedTimer.current) clearTimeout(savedTimer.current)
+        savedTimer.current = setTimeout(() => setSaved(false), 1500)
+      }
     } catch {
       setError('error.google.search')
     }
-  }, [restaurant, saveToDb])
+  }, [restaurant])
 
   // Upload photo to Supabase Storage
   const uploadPhoto = useCallback(async (file: File): Promise<string | null> => {
