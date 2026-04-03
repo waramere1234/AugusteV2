@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Camera, Loader2, LogOut, Sparkles, X, Check, CreditCard } from 'lucide-react'
+import { Camera, Loader2, LogOut, Sparkles, X, Check, Zap, Crown, Flame } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { useAuth } from '@/lib/auth'
 import { useRestaurant } from '@/hooks/useRestaurant'
@@ -296,73 +296,113 @@ export function ProfilePage() {
       </button>
 
       {/* ── Credits + Packs ──────────────────────────────────────────────────── */}
-      <section className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-[#C9A961]/10 flex items-center justify-center">
-              <Sparkles size={16} className="text-[#C9A961]" />
+      <section className="rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+        {/* Credits header — gradient banner */}
+        <div className="bg-gradient-to-r from-[#2C2622] to-[#3D352F] px-5 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#C9A961]/20 flex items-center justify-center">
+                <Sparkles size={18} className="text-[#C9A961]" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-white/50 uppercase tracking-wider">{t('profile.credits')}</p>
+                <div className="flex items-baseline gap-1.5">
+                  <span className={`text-2xl font-bold tabular-nums ${
+                    credits?.remaining === 0 ? 'text-[#D4895C]' : 'text-[#C9A961]'
+                  }`}>
+                    {credits?.remaining ?? '—'}
+                  </span>
+                  {credits?.totalGenerated ? (
+                    <span className="text-[10px] text-white/30">{credits.totalGenerated} {t('profile.generated')}</span>
+                  ) : null}
+                </div>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">{t('profile.credits')}</p>
-              <p className={`text-xl font-bold tabular-nums ${
-                credits?.remaining === 0 ? 'text-[#D4895C]' : 'text-[#C9A961]'
-              }`}>
-                {credits?.remaining ?? '—'}
-              </p>
-            </div>
+            <p className="text-[10px] text-white/30 max-w-[120px] text-right leading-tight">{t('profile.credits.desc')}</p>
           </div>
-          {credits?.totalGenerated ? (
-            <p className="text-[10px] text-gray-400">{credits.totalGenerated} {t('profile.generated')}</p>
-          ) : null}
         </div>
 
-        {/* Payment success banner */}
-        {paymentSuccess && (
-          <div className="bg-[#7C9A6B]/10 border border-[#7C9A6B]/20 rounded-xl px-4 py-3 flex items-center gap-2 animate-fade-in">
-            <Check size={16} className="text-[#7C9A6B] shrink-0" />
-            <p className="text-sm font-medium text-[#7C9A6B]">{t('profile.paymentSuccess')}</p>
-          </div>
-        )}
+        {/* Body — packs */}
+        <div className="bg-white p-4 space-y-3">
+          {/* Payment success banner */}
+          {paymentSuccess && (
+            <div className="bg-[#7C9A6B]/10 border border-[#7C9A6B]/20 rounded-xl px-4 py-3 flex items-center gap-2 animate-fade-in">
+              <Check size={16} className="text-[#7C9A6B] shrink-0" />
+              <p className="text-sm font-medium text-[#7C9A6B]">{t('profile.paymentSuccess')}</p>
+            </div>
+          )}
 
-        {/* Checkout error */}
-        {checkoutError && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
-            <span className="flex-1">{checkoutError}</span>
-            <button onClick={clearCheckoutError} className="p-1 rounded text-red-400 active:bg-red-100">
-              <X size={14} />
-            </button>
-          </div>
-        )}
+          {/* Checkout error */}
+          {checkoutError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+              <span className="flex-1">{checkoutError}</span>
+              <button onClick={clearCheckoutError} className="p-1 rounded text-red-400 active:bg-red-100">
+                <X size={14} />
+              </button>
+            </div>
+          )}
 
-        {/* Credit packs */}
-        <div className="grid grid-cols-3 gap-2">
-          {CREDIT_PACKS.map((pack) => (
-            <button
-              key={pack.id}
-              onClick={() => checkout(pack.id)}
-              disabled={!!checkoutLoading}
-              className={`relative flex flex-col items-center p-3 rounded-xl border-2 transition-all active:scale-[0.97] ${
-                pack.popular
-                  ? 'border-[#C9A961] bg-[#C9A961]/5'
-                  : 'border-gray-100 hover:border-gray-200'
-              } ${checkoutLoading ? 'opacity-60' : ''}`}
-            >
-              {pack.popular && (
-                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-[#C9A961] text-white text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  {t('profile.popular')}
-                </span>
-              )}
-              <CreditCard size={16} className={pack.popular ? 'text-[#C9A961]' : 'text-gray-400'} />
-              <p className="text-lg font-bold text-[#2C2622] mt-1.5 tabular-nums">{pack.credits}</p>
-              <p className="text-[10px] text-gray-400 -mt-0.5">{t('profile.credits')}</p>
-              <p className="text-sm font-bold text-[#C9A961] mt-2">{pack.price}</p>
-              {checkoutLoading === pack.id ? (
-                <Loader2 size={14} className="animate-spin text-[#C9A961] mt-1.5" />
-              ) : (
-                <p className="text-[10px] text-gray-400 mt-1.5">{pack.label}</p>
-              )}
-            </button>
-          ))}
+          <p className="text-xs font-semibold text-[#2C2622]/70 uppercase tracking-wider">{t('profile.choosePack')}</p>
+
+          {/* Pack cards — stacked on mobile for readability */}
+          <div className="space-y-2.5">
+            {CREDIT_PACKS.map((pack) => {
+              const icons = { starter: Zap, popular: Crown, complete: Flame }
+              const PackIcon = icons[pack.id]
+              const isLoading = checkoutLoading === pack.id
+
+              return (
+                <button
+                  key={pack.id}
+                  onClick={() => checkout(pack.id)}
+                  disabled={!!checkoutLoading}
+                  className={`relative w-full flex items-center gap-3.5 p-4 rounded-xl border-2 text-left transition-all active:scale-[0.98] ${
+                    pack.popular
+                      ? 'border-[#C9A961] bg-gradient-to-r from-[#C9A961]/[0.06] to-[#C9A961]/[0.02] shadow-[0_2px_12px_rgba(201,169,97,0.12)]'
+                      : 'border-gray-100 hover:border-gray-200 hover:shadow-sm'
+                  } ${checkoutLoading && !isLoading ? 'opacity-50' : ''}`}
+                >
+                  {/* Popular badge */}
+                  {pack.popular && (
+                    <span className="absolute -top-2.5 left-4 bg-[#C9A961] text-white text-[9px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                      {t('profile.popular')}
+                    </span>
+                  )}
+
+                  {/* Icon */}
+                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                    pack.popular ? 'bg-[#C9A961]/15' : 'bg-[#F0EDE8]'
+                  }`}>
+                    <PackIcon size={20} className={pack.popular ? 'text-[#C9A961]' : 'text-[#2C2622]/30'} />
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-sm font-bold text-[#2C2622]">{t(`profile.pack.${pack.id}`)}</span>
+                      <span className="text-[10px] text-[#2C2622]/30">{pack.pricePerCredit}/{t('profile.perCredit')}</span>
+                    </div>
+                    <p className="text-xs text-[#2C2622]/40 mt-0.5">{t(`profile.pack.${pack.id}.desc`)}</p>
+                  </div>
+
+                  {/* Price + credits */}
+                  <div className="text-right shrink-0">
+                    {isLoading ? (
+                      <Loader2 size={20} className="animate-spin text-[#C9A961] mx-auto" />
+                    ) : (
+                      <>
+                        <p className={`text-lg font-bold tabular-nums ${pack.popular ? 'text-[#C9A961]' : 'text-[#2C2622]'}`}>{pack.price}</p>
+                        <p className="text-[10px] text-[#2C2622]/30 font-medium">{pack.credits} {t('profile.credits.unit')}</p>
+                      </>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Trust line */}
+          <p className="text-[10px] text-center text-[#2C2622]/25 pt-1">{t('profile.stripe.trust')}</p>
         </div>
       </section>
 

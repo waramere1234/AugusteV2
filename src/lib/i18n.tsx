@@ -60,6 +60,17 @@ const translations = {
   'profile.generated': { fr: 'photos générées', en: 'photos generated' },
   'profile.popular': { fr: 'Populaire', en: 'Popular' },
   'profile.paymentSuccess': { fr: 'Crédits ajoutés avec succès !', en: 'Credits added successfully!' },
+  'profile.credits.desc': { fr: '1 crédit = 1 photo IA de plat', en: '1 credit = 1 AI dish photo' },
+  'profile.credits.unit': { fr: 'crédits', en: 'credits' },
+  'profile.choosePack': { fr: 'Recharger mes crédits', en: 'Top up my credits' },
+  'profile.perCredit': { fr: 'crédit', en: 'credit' },
+  'profile.pack.starter': { fr: 'Petit Menu', en: 'Small Menu' },
+  'profile.pack.starter.desc': { fr: 'Idéal pour tester avec quelques plats', en: 'Perfect to try with a few dishes' },
+  'profile.pack.popular': { fr: 'Menu Complet', en: 'Full Menu' },
+  'profile.pack.popular.desc': { fr: 'Le choix malin — couvre une carte entière', en: 'Smart choice — covers a full menu' },
+  'profile.pack.complete': { fr: 'Grande Carte', en: 'Full Catalog' },
+  'profile.pack.complete.desc': { fr: 'Pour les grandes cartes et les régénérations', en: 'For large menus and regenerations' },
+  'profile.stripe.trust': { fr: 'Paiement sécurisé par Stripe · Pas d\'abonnement', en: 'Secure payment by Stripe · No subscription' },
 
   // ── Menu ────────────────────────────────────────────────────────────────────
   'menu.title': { fr: 'Ma Carte', en: 'My Menu' },

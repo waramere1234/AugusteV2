@@ -4,15 +4,16 @@ import { supabase, ensureSession } from '@/lib/supabase'
 export interface CreditPack {
   id: 'starter' | 'popular' | 'complete'
   credits: number
+  priceNum: number
   price: string
-  label: string
+  pricePerCredit: string
   popular?: boolean
 }
 
 export const CREDIT_PACKS: CreditPack[] = [
-  { id: 'starter', credits: 20, price: '19€', label: 'Petit Menu' },
-  { id: 'popular', credits: 30, price: '25€', label: 'Menu Complet', popular: true },
-  { id: 'complete', credits: 50, price: '35€', label: 'Grande Carte' },
+  { id: 'starter', credits: 20, priceNum: 19, price: '19€', pricePerCredit: '0,95€' },
+  { id: 'popular', credits: 30, priceNum: 25, price: '25€', pricePerCredit: '0,83€', popular: true },
+  { id: 'complete', credits: 50, priceNum: 35, price: '35€', pricePerCredit: '0,70€' },
 ]
 
 export function useCheckout() {
@@ -36,7 +37,6 @@ export function useCheckout() {
       if (fnError) throw new Error(fnError.message)
       if (!data?.url) throw new Error('URL de paiement manquante')
 
-      // Redirect to Stripe Checkout
       window.location.href = data.url
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur de paiement')
