@@ -278,14 +278,12 @@ Styles de présentation pour l'export PDF : `french_bistro`, `fine_dining`, `str
 | Table | Rôle | RLS |
 |---|---|---|
 | `restaurants` | Pivot central — profil, style, Google data | owner_id = auth.uid() |
-| `menus` | Menus importés, liés à un restaurant | via restaurant_id |
-| `menu_items` | Plats extraits (nom, prix, catégorie, tailles, supplements, allergènes) | via menu_id |
-| `generated_images` | Photos IA générées, liées 1:1 à un menu_item | via menu_item_id |
-| `user_credits` | Crédits restants par utilisateur (défaut: 10) | user_id = auth.uid() |
-| `categories` | Catégories par menu avec position et cuisine_profile | via menu_id |
-| `leads` | Legacy v1 — facturation Stripe uniquement | via workspace_id |
-| `workspaces` | Legacy v1 — lien user/restaurant | user_id = auth.uid() |
-| `usage_tracking` | Analytics actions utilisateur | via lead_id |
+| `menus` | Menus importés, liés à un restaurant (restaurant_id NOT NULL) | via restaurant_id → restaurants.owner_id |
+| `menu_items` | Plats extraits (nom, prix, catégorie, tailles, supplements, allergènes) | via menu_id → menus → restaurants.owner_id |
+| `generated_images` | Photos IA générées, liées 1:1 à un menu_item | via menu_item_id → menu_items → menus → restaurants.owner_id |
+| `user_credits` | Crédits restants par utilisateur (défaut: 3) | user_id = auth.uid() |
+| `categories` | Catégories par menu avec position et cuisine_profile | via menu_id → menus → restaurants.owner_id |
+| `dish_templates` | Templates plats auto-appris (upsert par cuisine_profile + nom) | public read, authenticated write |
 
 ### Relations
 

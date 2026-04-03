@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Camera, Download, RefreshCw, X, Loader2, Check,
-  AlertCircle, ChevronLeft, ChevronRight, Sparkles, ImageOff,
+  AlertCircle, ChevronLeft, ChevronRight, Sparkles, ImageOff, CreditCard,
 } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { useRestaurant } from '@/hooks/useRestaurant'
 import { useMenus } from '@/hooks/useMenus'
-import { useGeneration, type GenerationJob } from '@/hooks/useGeneration'
+import { useCredits } from '@/hooks/useCredits'
+import { useGeneration } from '@/hooks/useGeneration'
 import type { MenuItem } from '@/types'
 
 // ── Photo card with staggered reveal ────────────────────────────────────────
@@ -17,17 +18,19 @@ function PhotoCard({
   index,
   regenerating,
   onClick,
+  onDownload,
 }: {
   item: MenuItem
   index: number
   regenerating: boolean
   onClick: () => void
+  onDownload: () => void
 }) {
   return (
-    <button
-      onClick={onClick}
-      className="animate-photo-reveal relative group rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow duration-300 aspect-[4/5] bg-[#F0EDE8]"
+    <div
+      className="animate-photo-reveal relative group rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow duration-300 aspect-[4/5] bg-[#F0EDE8] cursor-pointer"
       style={{ animationDelay: `${index * 80}ms` }}
+      onClick={onClick}
     >
       <img
         src={item.image_url!}
@@ -38,10 +41,21 @@ function PhotoCard({
 
       {/* Gradient overlay — always visible on mobile, on hover on desktop */}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3 pt-12 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity duration-300">
-        <p className="text-white text-sm font-medium truncate leading-tight">{item.nom}</p>
-        {item.prix && (
-          <p className="text-white/60 text-xs mt-0.5">{item.prix}</p>
-        )}
+        <div className="flex items-end justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-white text-sm font-medium truncate leading-tight">{item.nom}</p>
+            {item.prix && (
+              <p className="text-white/60 text-xs mt-0.5">{item.prix}</p>
+            )}
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDownload() }}
+            className="shrink-0 p-1.5 rounded-full bg-white/15 hover:bg-white/30 active:scale-90 transition-all"
+            aria-label="Download"
+          >
+            <Download size={14} className="text-white" />
+          </button>
+        </div>
       </div>
 
       {/* Category pill — top left */}
@@ -51,13 +65,27 @@ function PhotoCard({
         </span>
       </div>
 
-      {/* User photo badge — top right */}
-      {item.image_source === 'user' && !regenerating && (
+      {/* Source badge — top right */}
+      {!regenerating && (
         <div className="absolute top-2.5 right-2.5">
-          <span className="bg-[#C9A961] text-white text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-            <Sparkles size={9} />
-            ENHANCE
-          </span>
+          {item.image_source === 'user' && (
+            <span className="bg-[#C9A961] text-white text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+              <Camera size={9} />
+              PHOTO
+            </span>
+          )}
+          {item.image_source === 'enhanced' && (
+            <span className="bg-[#C9A961]/80 backdrop-blur-sm text-white text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+              <Sparkles size={9} />
+              ENHANCED
+            </span>
+          )}
+          {item.image_source === 'generated' && (
+            <span className="bg-[#2C2622]/50 backdrop-blur-sm text-white text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+              <Sparkles size={9} />
+              IA
+            </span>
+          )}
         </div>
       )}
 
@@ -69,7 +97,7 @@ function PhotoCard({
           </div>
         </div>
       )}
-    </button>
+    </div>
   )
 }
 
@@ -91,29 +119,6 @@ function ShimmerCard({ name, index }: { name: string; index: number }) {
         </div>
         <p className="text-xs text-[#2C2622]/50 font-medium text-center truncate max-w-full">{name}</p>
       </div>
-    </div>
-  )
-}
-
-// ── Pending item row ────────────────────────────────────────────────────────
-
-function PendingItem({ item, job }: { item: MenuItem; job?: GenerationJob }) {
-  return (
-    <div className="flex items-center gap-3 bg-white rounded-xl p-3 shadow-sm">
-      <div className="w-11 h-11 rounded-lg bg-[#F0EDE8] flex items-center justify-center shrink-0">
-        {job?.status === 'error' ? (
-          <AlertCircle size={18} className="text-[#D4895C]" />
-        ) : (
-          <ImageOff size={16} className="text-[#2C2622]/20" />
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-[#2C2622] truncate">{item.nom}</p>
-        <p className="text-xs text-[#2C2622]/40">{item.categorie}</p>
-      </div>
-      {job?.status === 'error' && (
-        <span className="text-[10px] text-[#D4895C] font-medium shrink-0">{job.error}</span>
-      )}
     </div>
   )
 }
@@ -250,45 +255,79 @@ function FullscreenViewer({
 export function PhotosPage() {
   const { t } = useI18n()
   const location = useLocation()
+  const navigate = useNavigate()
   const { restaurant } = useRestaurant()
   const { items, loading: menuLoading, reload } = useMenus(restaurant?.id ?? null)
+  const { credits, reload: reloadCredits } = useCredits()
   const { jobs, generating, progress, generateBatch, regenerateOne, enhanceOne } = useGeneration()
 
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null)
   const [regenerating, setRegenerating] = useState<string | null>(null)
   const [hasAutoStarted, setHasAutoStarted] = useState(false)
+  const hasCredits = (credits?.remaining ?? 0) > 0
 
-  // Reload items from DB when generation finishes (images are now persisted)
+  // Reload items + credits from DB when generation finishes
   const prevGenerating = useRef(false)
   useEffect(() => {
     if (prevGenerating.current && !generating) {
       reload()
+      reloadCredits()
     }
     prevGenerating.current = generating
-  }, [generating, reload])
+  }, [generating, reload, reloadCredits])
 
   // Auto-start generation if we arrived from MenuPage with selectedIds
+  // Includes user-uploaded photos (image_source='user') for automatic enhance
   const selectedIds = (location.state as { selectedIds?: string[] } | null)?.selectedIds
   useEffect(() => {
-    if (hasAutoStarted || !selectedIds?.length || !restaurant || menuLoading || items.length === 0) return
+    if (hasAutoStarted || !selectedIds?.length || !restaurant || menuLoading || items.length === 0 || !hasCredits) return
     setHasAutoStarted(true)
 
-    const toGenerate = items.filter(
-      (i) => selectedIds.includes(i.id) && !i.image_url,
+    const toProcess = items.filter(
+      (i) => selectedIds.includes(i.id) && (!i.image_url || i.image_source === 'user'),
     )
-    if (toGenerate.length > 0) {
-      generateBatch(toGenerate, restaurant)
+    if (toProcess.length > 0) {
+      generateBatch(toProcess, restaurant)
     }
-  }, [selectedIds, restaurant, menuLoading, items, hasAutoStarted, generateBatch])
+  }, [selectedIds, restaurant, menuLoading, items, hasAutoStarted, hasCredits, generateBatch])
 
   // Split items — user photos need enhance, generated photos are done
   const withPhotos = items.filter((i) => i.image_url)
   const withoutPhotos = items.filter((i) => !i.image_url)
   const userPhotosCount = items.filter((i) => i.image_source === 'user').length
 
-  function getJob(itemId: string): GenerationJob | undefined {
-    return jobs.find((j) => j.itemId === itemId)
-  }
+  // Group photos by generation date (most recent first)
+  const photoGroups = useMemo(() => {
+    const groups = new Map<string, { label: string; sortKey: string; items: MenuItem[]; globalIndices: number[] }>()
+
+    withPhotos.forEach((item, globalIndex) => {
+      let dateKey: string
+      let label: string
+      let sortKey: string
+
+      if (item.generated_at) {
+        const d = new Date(item.generated_at)
+        dateKey = d.toISOString().slice(0, 10)
+        sortKey = dateKey
+        const today = new Date().toISOString().slice(0, 10)
+        const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+        if (dateKey === today) label = t('photos.today')
+        else if (dateKey === yesterday) label = t('photos.yesterday')
+        else label = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+      } else {
+        dateKey = '__uploaded__'
+        sortKey = '9999-99-99'
+        label = t('photos.uploaded')
+      }
+
+      if (!groups.has(dateKey)) groups.set(dateKey, { label, sortKey, items: [], globalIndices: [] })
+      const group = groups.get(dateKey)!
+      group.items.push(item)
+      group.globalIndices.push(globalIndex)
+    })
+
+    return [...groups.values()].sort((a, b) => b.sortKey.localeCompare(a.sortKey))
+  }, [withPhotos, t])
 
   const handleRegenerate = useCallback(async (item: MenuItem) => {
     if (!restaurant) return
@@ -309,13 +348,21 @@ export function PhotosPage() {
     setRegenerating(null)
   }, [restaurant, regenerateOne, enhanceOne, reload])
 
-  function handleDownload(item: MenuItem) {
+  async function handleDownload(item: MenuItem) {
     if (!item.image_url) return
-    const a = document.createElement('a')
-    a.href = item.image_url
-    a.download = `${item.nom.replace(/\s+/g, '_')}.png`
-    a.target = '_blank'
-    a.click()
+    try {
+      const res = await fetch(item.image_url)
+      const blob = await res.blob()
+      const ext = blob.type.includes('webp') ? 'webp' : blob.type.includes('png') ? 'png' : 'jpg'
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${item.nom.replace(/\s+/g, '_')}.${ext}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      window.open(item.image_url, '_blank')
+    }
   }
 
   // ── Loading ────────────────────────────────────────────────────────────────
@@ -414,9 +461,33 @@ export function PhotosPage() {
                 }>
                   {job.itemName}
                 </span>
+                {job.type === 'enhance' && (
+                  <span className="text-[10px] text-[#C9A961]/70 font-medium">
+                    {t('photos.enhance.label')}
+                  </span>
+                )}
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── No credits banner ─────────────────────────────────────────────────── */}
+      {!hasCredits && !generating && (withoutPhotos.length > 0 || userPhotosCount > 0) && (
+        <div className="bg-[#D4895C]/10 border border-[#D4895C]/20 rounded-2xl p-4 flex items-center gap-3 animate-fade-in">
+          <div className="w-10 h-10 rounded-xl bg-[#D4895C]/10 flex items-center justify-center shrink-0">
+            <CreditCard size={18} className="text-[#D4895C]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-[#2C2622]">{t('photos.noCredits')}</p>
+            <p className="text-xs text-[#2C2622]/50 mt-0.5">{t('photos.noCredits.desc')}</p>
+          </div>
+          <button
+            onClick={() => navigate('/profil')}
+            className="shrink-0 px-4 py-2.5 bg-[#C9A961] text-white text-xs font-semibold rounded-xl active:scale-95 transition-all"
+          >
+            {t('photos.buyCredits')}
+          </button>
         </div>
       )}
 
@@ -429,38 +500,37 @@ export function PhotosPage() {
         </div>
       )}
 
-      {/* ── Photo grid ────────────────────────────────────────────────────────── */}
-      {withPhotos.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-          {withPhotos.map((item, i) => (
-            <PhotoCard
-              key={item.id}
-              item={item}
-              index={i}
-              regenerating={regenerating === item.id}
-              onClick={() => setFullscreenIndex(i)}
-            />
-          ))}
+      {/* ── Photo grid grouped by date ─────────────────────────────────────────── */}
+      {photoGroups.map((group) => (
+        <div key={group.label} className="space-y-2">
+          {photoGroups.length > 1 && (
+            <h2 className="text-xs font-semibold text-[#2C2622]/30 uppercase tracking-wider">
+              {group.label} ({group.items.length})
+            </h2>
+          )}
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            {group.items.map((item, i) => (
+              <PhotoCard
+                key={item.id}
+                item={item}
+                index={i}
+                regenerating={regenerating === item.id}
+                onClick={() => setFullscreenIndex(group.globalIndices[i])}
+                onDownload={() => handleDownload(item)}
+              />
+            ))}
+          </div>
         </div>
-      )}
+      ))}
 
-      {/* ── Enhance user photos button ───────────────────────────────────────── */}
+      {/* ── Enhance user photos button — launches batch enhance ─────────────── */}
       {userPhotosCount > 0 && !generating && restaurant && (
         <button
-          onClick={async () => {
+          onClick={() => {
             const userItems = items.filter((i) => i.image_source === 'user' && i.image_url)
-            for (const item of userItems) {
-              setRegenerating(item.id)
-              try {
-                await enhanceOne(item, restaurant, item.image_url!)
-              } catch (err) {
-                console.error(`Enhance failed for ${item.nom}:`, err)
-              }
-              setRegenerating(null)
-            }
-            reload()
+            if (userItems.length > 0) generateBatch(userItems, restaurant)
           }}
-          disabled={!!regenerating}
+          disabled={!!regenerating || !hasCredits}
           className="w-full py-4 bg-gradient-to-r from-[#C9A961] to-[#D4B96E] text-white rounded-2xl text-sm font-semibold
             shadow-[0_4px_16px_rgba(201,169,97,0.3)] active:scale-[0.98] transition-all
             disabled:opacity-50 flex items-center justify-center gap-2"
@@ -470,29 +540,26 @@ export function PhotosPage() {
         </button>
       )}
 
-      {/* ── Pending items ─────────────────────────────────────────────────────── */}
+      {/* ── Pending items counter ──────────────────────────────────────────────── */}
       {withoutPhotos.length > 0 && !generating && (
-        <div className="space-y-3">
-          <h2 className="text-xs font-semibold text-[#2C2622]/30 uppercase tracking-wider">
-            {t('photos.noPhoto')} ({withoutPhotos.length})
-          </h2>
-          <div className="space-y-2">
-            {withoutPhotos.map((item) => (
-              <PendingItem key={item.id} item={item} job={getJob(item.id)} />
-            ))}
+        <div className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3 animate-fade-in">
+          <div className="w-10 h-10 rounded-xl bg-[#F0EDE8] flex items-center justify-center shrink-0">
+            <ImageOff size={18} className="text-[#2C2622]/20" />
           </div>
-
-          {/* Generate all */}
-          {restaurant && (
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-[#2C2622]">
+              {withoutPhotos.length} {t('photos.pendingCount')}
+            </p>
+            <p className="text-xs text-[#2C2622]/40 mt-0.5">{t('photos.pendingCount.desc')}</p>
+          </div>
+          {restaurant && hasCredits && (
             <button
               onClick={() => generateBatch(withoutPhotos, restaurant)}
               disabled={generating}
-              className="w-full mt-2 py-4 bg-[#C9A961] text-white rounded-2xl text-sm font-semibold
-                shadow-[0_4px_16px_rgba(201,169,97,0.3)] active:scale-[0.98] transition-all
-                disabled:opacity-50 flex items-center justify-center gap-2"
+              className="shrink-0 px-4 py-2.5 bg-[#C9A961] text-white text-xs font-semibold rounded-xl active:scale-95 transition-all disabled:opacity-50"
             >
-              <Sparkles size={16} />
-              {t('photos.generateAll')} ({withoutPhotos.length})
+              <Sparkles size={14} className="inline mr-1" />
+              {t('photos.generateAll')}
             </button>
           )}
         </div>

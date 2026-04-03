@@ -12,9 +12,3 @@ export const PRESENTATION_STYLES: PresentationStyle[] = [
   { id: 'asian_fusion', emoji: '\u{1F962}', label: 'Asiatique', hint: 'modern Asian fusion restaurant, sleek dark surfaces, neon accents, dynamic urban atmosphere' },
   { id: 'mediterranean', emoji: '\u{1FAD2}', label: 'Méditerranéen', hint: 'Mediterranean coastal setting, blue and white tones, olive wood, terrace by the sea atmosphere' },
 ];
-
-/** Find a style by matching its hint prefix in a stored description string */
-export function findStyleByHint(description: string): PresentationStyle | null {
-  if (!description) return null;
-  return PRESENTATION_STYLES.find(s => description.startsWith(s.hint)) ?? null;
-}

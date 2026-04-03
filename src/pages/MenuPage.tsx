@@ -4,7 +4,6 @@ import { Loader2, Check, X, RefreshCw, UtensilsCrossed, Sparkles, FileText } fro
 import { useI18n } from '@/lib/i18n'
 import { useRestaurant } from '@/hooks/useRestaurant'
 import { useMenus } from '@/hooks/useMenus'
-import { useGeneration } from '@/hooks/useGeneration'
 import { supabase } from '@/lib/supabase'
 import { ImportOptions } from '@/components/menu/ImportOptions'
 import { EditBottomSheet } from '@/components/menu/EditBottomSheet'
@@ -19,7 +18,6 @@ export function MenuPage() {
     items, categories, loading, extracting, enriching, extractedItems, error,
     importFromFiles, importFromUrl, enrichDescriptions, updateItem, deleteItem, reload,
   } = useMenus(restaurant?.id ?? null)
-  const { enhanceOne } = useGeneration()
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
@@ -66,7 +64,7 @@ export function MenuPage() {
     setEnhancingId(item.id)
 
     try {
-      // Step 1: Save user photo immediately
+      // Save user photo immediately — enhance happens automatically during batch generation
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not authenticated')
 
@@ -85,21 +83,13 @@ export function MenuPage() {
         .update({ image_url: publicUrl, image_source: 'user' as const })
         .eq('id', item.id)
 
-      reload() // Show user photo immediately
-
-      // Step 2: Enhance via AI in background — pass the Storage URL, not base64
-      try {
-        const enhancedUrl = await enhanceOne(item, restaurant, publicUrl)
-        if (enhancedUrl) reload()
-      } catch (err) {
-        console.error('Enhance failed (keeping user photo):', err)
-      }
+      reload()
     } catch (err) {
       console.error('Photo upload error:', err)
     }
 
     setEnhancingId(null)
-  }, [restaurant, reload, enhanceOne])
+  }, [restaurant, reload])
 
   const handleImportUrl = useCallback(async (url: string) => {
     if (!restaurant) return

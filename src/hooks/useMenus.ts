@@ -71,14 +71,19 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
       setMenu(menuData as MenuRow)
 
       const { data: itemsData, error: itemsError } = await supabase
-        .from('menu_items').select('*')
+        .from('menu_items').select('*, generated_images(created_at)')
         .eq('menu_id', menuData.id)
         .order('position', { ascending: true })
 
       if (cancelled) return
       if (itemsError) { setError(itemsError.message); setLoading(false); return }
 
-      const menuItems = (itemsData ?? []) as MenuItem[]
+      const menuItems = (itemsData ?? []).map((row) => {
+        const { generated_images, ...item } = row as Record<string, unknown>
+        const gi = generated_images as { created_at: string } | { created_at: string }[] | null
+        const genAt = Array.isArray(gi) ? gi[0]?.created_at : gi?.created_at
+        return { ...item, generated_at: genAt ?? null } as MenuItem
+      })
       setItems(menuItems)
 
       const order = menuData.category_order as string[] | null

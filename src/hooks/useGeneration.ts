@@ -5,6 +5,7 @@ import type { MenuItem, Restaurant } from '@/types'
 export interface GenerationJob {
   itemId: string
   itemName: string
+  type: 'generate' | 'enhance'
   status: 'pending' | 'generating' | 'done' | 'error'
   imageUrl?: string
   error?: string
@@ -36,6 +37,8 @@ function buildDish(
     userInstructions: options?.instructions,
     sourceImageUrl: options?.sourceImageUrl,
     isEnhance: options?.isEnhance,
+    restaurantCoverUrl: restaurant.style_photo_url || undefined,
+    restaurantStyleDescription: restaurant.style_description || undefined,
   }
 }
 
@@ -51,7 +54,7 @@ async function getUserId(): Promise<string> {
  * Storage RLS requires path: {userId}/filename — so we prefix with the authenticated user's ID.
  * Returns the public Storage URL.
  */
-async function persistImage(itemId: string, dataUri: string, userId: string): Promise<string> {
+async function persistImage(itemId: string, dataUri: string, userId: string, imageSource: 'generated' | 'enhanced' = 'generated'): Promise<string> {
   // Convert data URI to Blob
   const res = await fetch(dataUri)
   const blob = await res.blob()
@@ -74,7 +77,7 @@ async function persistImage(itemId: string, dataUri: string, userId: string): Pr
   // Update menu_items row
   const { error: updateError } = await supabase
     .from('menu_items')
-    .update({ image_url: publicUrl, image_source: 'generated' })
+    .update({ image_url: publicUrl, image_source: imageSource })
     .eq('id', itemId)
   if (updateError) console.error('menu_items update error:', updateError.message)
 
@@ -94,13 +97,14 @@ export function useGeneration(): UseGenerationReturn {
   const doneCount = jobs.filter((j) => j.status === 'done').length
   const progress = { done: doneCount, total: jobs.length }
 
-  // Generate photos for a batch of items — single Edge Function call
+  // Generate photos for a batch of items — handles both fresh generation and enhance (user photos)
   const generateBatch = useCallback(async (items: MenuItem[], restaurant: Restaurant) => {
     if (items.length === 0) return
 
     const initialJobs: GenerationJob[] = items.map((item) => ({
       itemId: item.id,
       itemName: item.nom,
+      type: (item.image_source === 'user' && item.image_url) ? 'enhance' : 'generate',
       status: 'pending',
     }))
     setJobs(initialJobs)
@@ -113,7 +117,14 @@ export function useGeneration(): UseGenerationReturn {
       // Mark all as generating
       setJobs((prev) => prev.map((j) => ({ ...j, status: 'generating' })))
 
-      const dishes = items.map((item) => buildDish(item, restaurant, {}))
+      // Build dishes — user photos get isEnhance + sourceImageUrl flags
+      const dishes = items.map((item) => {
+        const isUserPhoto = item.image_source === 'user' && item.image_url
+        return buildDish(item, restaurant, isUserPhoto
+          ? { sourceImageUrl: item.image_url, isEnhance: true }
+          : {},
+        )
+      })
 
       const { data, error } = await supabase.functions.invoke('generate-dish-photo', {
         body: {
@@ -137,13 +148,29 @@ export function useGeneration(): UseGenerationReturn {
       }
       if (!data?.success) throw new Error(data?.error || 'Erreur de génération')
 
-      const images: { dishId: string; imageUrl: string }[] = data.images ?? []
+      const images: { dishId: string; imageUrl: string | null; error?: string }[] = data.images ?? []
 
       // Persist each image: upload to Storage + update DB
       for (const img of images) {
+        // Skip failed enhance results — keep user photo untouched
+        if (!img.imageUrl || img.error) {
+          setJobs((prev) =>
+            prev.map((j) =>
+              j.itemId === img.dishId
+                ? { ...j, status: 'error', error: img.error === 'enhance_source_unavailable'
+                    ? 'Photo source inaccessible'
+                    : img.error || 'Pas d\'image retournée' }
+                : j,
+            ),
+          )
+          continue
+        }
+
         try {
+          const job = initialJobs.find((j) => j.itemId === img.dishId)
+          const source = job?.type === 'enhance' ? 'enhanced' as const : 'generated' as const
           const storageUrl = img.imageUrl.startsWith('data:')
-            ? await persistImage(img.dishId, img.imageUrl, userId)
+            ? await persistImage(img.dishId, img.imageUrl, userId, source)
             : img.imageUrl
 
           setJobs((prev) =>
@@ -245,7 +272,7 @@ export function useGeneration(): UseGenerationReturn {
     if (!rawUrl) throw new Error('Pas d\'image retournée')
 
     return rawUrl.startsWith('data:')
-      ? await persistImage(item.id, rawUrl, userId)
+      ? await persistImage(item.id, rawUrl, userId, 'enhanced')
       : rawUrl
   }, [])
 

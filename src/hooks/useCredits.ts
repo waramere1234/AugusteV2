@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 
@@ -12,33 +12,28 @@ export function useCredits() {
   const [credits, setCredits] = useState<Credits | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!user) return
-    let cancelled = false
+    const { data, error } = await supabase
+      .from('user_credits')
+      .select('credits_remaining, total_generated')
+      .eq('user_id', user.id)
+      .maybeSingle()
 
-    async function load() {
-      const { data, error } = await supabase
-        .from('user_credits')
-        .select('credits_remaining, total_generated')
-        .eq('user_id', user!.id)
-        .maybeSingle()
-
-      if (cancelled) return
-
-      if (error || !data) {
-        setCredits({ remaining: 0, totalGenerated: 0 })
-      } else {
-        setCredits({
-          remaining: data.credits_remaining,
-          totalGenerated: data.total_generated,
-        })
-      }
-      setLoading(false)
+    if (error || !data) {
+      setCredits({ remaining: 0, totalGenerated: 0 })
+    } else {
+      setCredits({
+        remaining: data.credits_remaining,
+        totalGenerated: data.total_generated,
+      })
     }
-
-    load()
-    return () => { cancelled = true }
+    setLoading(false)
   }, [user])
 
-  return { credits, loading }
+  useEffect(() => {
+    load()
+  }, [load])
+
+  return { credits, loading, reload: load }
 }

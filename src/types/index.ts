@@ -33,7 +33,8 @@ export interface MenuItem {
   labels?: string[];
   disponible?: boolean;
   item_type?: 'plat' | 'formule' | 'boisson' | 'dessert';
-  image_source?: 'platform' | 'generated' | 'user' | null;
+  image_source?: 'platform' | 'generated' | 'enhanced' | 'user' | null;
+  generated_at?: string | null;
   position?: number;
 }
 
@@ -55,6 +56,7 @@ export interface Restaurant {
   presentation_style_id: string | null;
   style_description: string | null;
   logo_url: string | null;
+  stripe_customer_id: string | null;
   created_at: string;
 }
 
@@ -64,7 +66,7 @@ export interface Menu {
   restaurant_id: string;
   file_name: string;
   source_type: 'file' | 'url' | 'photo';
-  detected_cuisine_profile: string | null;
+  cuisine_profile: string | null;
   hero_photo_url: string | null;
   category_order: string[] | null;
   created_at: string;
@@ -91,31 +93,9 @@ export interface GoogleBusinessData {
   photo_urls: string[];
 }
 
-// ── Image Generation ─────────────────────────────────────────────────────────
-export interface ImageRequest {
-  id: string;
-  name?: string;
-  category?: string;
-  description?: string;
-  quality?: 'standard' | 'premium';
-  cuisineProfile?: string;
-  cuisineTypes?: string[];
-  restaurantPhotoBase64?: string;
-  dishReferenceBase64?: string;
-  userInstructions?: string;
-  siblingImageBase64?: string;
-}
-
-export interface GeneratedImage {
-  item_id: string;
-  image_url: string;
-  prompt?: string;
-  created_at: string;
-}
-
 // ── User / Credits ───────────────────────────────────────────────────────────
 export interface UserCredits {
-  credits_used: number;
-  credits_purchased: number;
-  remaining: number;
+  user_id: string;
+  credits_remaining: number;
+  total_generated: number;
 }
