@@ -57,6 +57,9 @@ const translations = {
   'profile.step.name': { fr: 'Nom', en: 'Name' },
   'profile.step.google': { fr: 'Google', en: 'Google' },
   'profile.step.cuisine': { fr: 'Cuisine', en: 'Cuisine' },
+  'profile.generated': { fr: 'photos générées', en: 'photos generated' },
+  'profile.popular': { fr: 'Populaire', en: 'Popular' },
+  'profile.paymentSuccess': { fr: 'Crédits ajoutés avec succès !', en: 'Credits added successfully!' },
 
   // ── Menu ────────────────────────────────────────────────────────────────────
   'menu.title': { fr: 'Ma Carte', en: 'My Menu' },

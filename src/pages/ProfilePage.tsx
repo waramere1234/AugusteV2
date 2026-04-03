@@ -1,10 +1,11 @@
-import { useState, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Camera, Loader2, LogOut, Sparkles, X, Check } from 'lucide-react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Camera, Loader2, LogOut, Sparkles, X, Check, CreditCard } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { useAuth } from '@/lib/auth'
 import { useRestaurant } from '@/hooks/useRestaurant'
 import { useCredits } from '@/hooks/useCredits'
+import { useCheckout, CREDIT_PACKS } from '@/hooks/useCheckout'
 import { GoogleBusinessCard } from '@/components/profile/GoogleBusinessCard'
 import { CuisineSelector } from '@/components/profile/CuisineSelector'
 
@@ -16,9 +17,29 @@ export function ProfilePage() {
     restaurant, loading, saving, saved, error, clearError,
     updateField, searchGoogle, applyGoogleData, uploadPhoto,
   } = useRestaurant()
-  const { credits } = useCredits()
+  const { credits, reload: reloadCredits } = useCredits()
+  const { checkout, loading: checkoutLoading, error: checkoutError, clearError: clearCheckoutError } = useCheckout()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [uploading, setUploading] = useState(false)
+  const [paymentSuccess, setPaymentSuccess] = useState(false)
+
+  // Handle Stripe return
+  useEffect(() => {
+    const payment = searchParams.get('payment')
+    if (payment === 'success') {
+      setPaymentSuccess(true)
+      reloadCredits()
+      // Clean URL
+      searchParams.delete('payment')
+      searchParams.delete('pack')
+      setSearchParams(searchParams, { replace: true })
+      setTimeout(() => setPaymentSuccess(false), 5000)
+    } else if (payment === 'cancelled') {
+      searchParams.delete('payment')
+      setSearchParams(searchParams, { replace: true })
+    }
+  }, [searchParams, setSearchParams, reloadCredits])
   const [applyingGoogle, setApplyingGoogle] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -262,30 +283,88 @@ export function ProfilePage() {
         />
       </section>
 
-      {/* ── Quick links: Menu + Credits ──────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          onClick={() => navigate('/menu')}
-          className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-left hover:shadow-md hover:border-gray-200 active:scale-[0.97] transition-all"
-        >
-          <span className="text-2xl">📋</span>
-          <p className="text-sm font-semibold text-[#2C2622] mt-2">{t('profile.menus')}</p>
+      {/* ── Quick link: Menu ──────────────────────────────────────────────────── */}
+      <button
+        onClick={() => navigate('/menu')}
+        className="w-full bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-left hover:shadow-md hover:border-gray-200 active:scale-[0.97] transition-all flex items-center gap-4"
+      >
+        <span className="text-2xl">📋</span>
+        <div>
+          <p className="text-sm font-semibold text-[#2C2622]">{t('profile.menus')}</p>
           <p className="text-xs text-[#C9A961] mt-0.5 font-medium">+ {t('profile.addMenu')}</p>
-        </button>
-
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col">
-          <Sparkles size={18} className="text-[#C9A961]" />
-          <p className={`text-2xl font-bold mt-2 tabular-nums ${
-            credits?.remaining === 0 ? 'text-[#D4895C]' : 'text-[#C9A961]'
-          }`}>
-            {credits?.remaining ?? '—'}
-          </p>
-          <p className="text-xs text-gray-500 mt-0.5">{t('profile.credits')}</p>
-          <button className="mt-3 w-full py-2.5 bg-[#C9A961] hover:bg-[#C9A961]/90 text-white text-xs font-medium rounded-lg active:scale-95 transition-all shadow-sm shadow-[#C9A961]/20">
-            {t('common.buy')}
-          </button>
         </div>
-      </div>
+      </button>
+
+      {/* ── Credits + Packs ──────────────────────────────────────────────────── */}
+      <section className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-[#C9A961]/10 flex items-center justify-center">
+              <Sparkles size={16} className="text-[#C9A961]" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">{t('profile.credits')}</p>
+              <p className={`text-xl font-bold tabular-nums ${
+                credits?.remaining === 0 ? 'text-[#D4895C]' : 'text-[#C9A961]'
+              }`}>
+                {credits?.remaining ?? '—'}
+              </p>
+            </div>
+          </div>
+          {credits?.totalGenerated ? (
+            <p className="text-[10px] text-gray-400">{credits.totalGenerated} {t('profile.generated')}</p>
+          ) : null}
+        </div>
+
+        {/* Payment success banner */}
+        {paymentSuccess && (
+          <div className="bg-[#7C9A6B]/10 border border-[#7C9A6B]/20 rounded-xl px-4 py-3 flex items-center gap-2 animate-fade-in">
+            <Check size={16} className="text-[#7C9A6B] shrink-0" />
+            <p className="text-sm font-medium text-[#7C9A6B]">{t('profile.paymentSuccess')}</p>
+          </div>
+        )}
+
+        {/* Checkout error */}
+        {checkoutError && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+            <span className="flex-1">{checkoutError}</span>
+            <button onClick={clearCheckoutError} className="p-1 rounded text-red-400 active:bg-red-100">
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* Credit packs */}
+        <div className="grid grid-cols-3 gap-2">
+          {CREDIT_PACKS.map((pack) => (
+            <button
+              key={pack.id}
+              onClick={() => checkout(pack.id)}
+              disabled={!!checkoutLoading}
+              className={`relative flex flex-col items-center p-3 rounded-xl border-2 transition-all active:scale-[0.97] ${
+                pack.popular
+                  ? 'border-[#C9A961] bg-[#C9A961]/5'
+                  : 'border-gray-100 hover:border-gray-200'
+              } ${checkoutLoading ? 'opacity-60' : ''}`}
+            >
+              {pack.popular && (
+                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-[#C9A961] text-white text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  {t('profile.popular')}
+                </span>
+              )}
+              <CreditCard size={16} className={pack.popular ? 'text-[#C9A961]' : 'text-gray-400'} />
+              <p className="text-lg font-bold text-[#2C2622] mt-1.5 tabular-nums">{pack.credits}</p>
+              <p className="text-[10px] text-gray-400 -mt-0.5">{t('profile.credits')}</p>
+              <p className="text-sm font-bold text-[#C9A961] mt-2">{pack.price}</p>
+              {checkoutLoading === pack.id ? (
+                <Loader2 size={14} className="animate-spin text-[#C9A961] mt-1.5" />
+              ) : (
+                <p className="text-[10px] text-gray-400 mt-1.5">{pack.label}</p>
+              )}
+            </button>
+          ))}
+        </div>
+      </section>
 
       {/* ── Logout ──────────────────────────────────────────────────────────── */}
       <button
