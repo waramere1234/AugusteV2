@@ -10,6 +10,7 @@ import { MenuPage } from '@/pages/MenuPage'
 import { PhotosPage } from '@/pages/PhotosPage'
 
 const ExportPage = lazy(() => import('@/pages/ExportPage').then((m) => ({ default: m.ExportPage })))
+const PublicMenuPage = lazy(() => import('@/pages/PublicMenuPage').then((m) => ({ default: m.PublicMenuPage })))
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
@@ -63,6 +64,7 @@ export default function App() {
             {/* Public */}
             <Route path="/" element={<PublicHome />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/m/:restaurantId" element={<Suspense fallback={null}><PublicMenuPage /></Suspense>} />
 
             {/* Protected */}
             <Route element={<ProtectedRoutes />}>

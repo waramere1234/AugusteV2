@@ -186,6 +186,10 @@ const translations = {
   'export.soon': { fr: 'Bientôt', en: 'Soon' },
   'export.chooseStyle': { fr: 'Choisir un thème', en: 'Choose a theme' },
   'export.chooseStyle.desc': { fr: 'Sélectionnez le style de votre menu PDF', en: 'Select the style of your PDF menu' },
+  'export.qr.title': { fr: 'Menu en ligne', en: 'Online menu' },
+  'export.qr.desc': { fr: 'Scannez ce QR code pour voir votre menu en ligne', en: 'Scan this QR code to view your online menu' },
+  'export.qr.preview': { fr: 'Voir le menu', en: 'View menu' },
+  'export.qr.download': { fr: 'Télécharger le QR', en: 'Download QR' },
 
   // ── Common ──────────────────────────────────────────────────────────────────
   'common.save': { fr: 'Enregistrer', en: 'Save' },
