@@ -1,256 +1,18 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
-  Camera, Download, RefreshCw, X, Loader2, Check,
-  AlertCircle, ChevronLeft, ChevronRight, Sparkles, ImageOff, CreditCard,
+  Camera, Loader2, Check,
+  AlertCircle, Sparkles, ImageOff, CreditCard,
 } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { useRestaurant } from '@/hooks/useRestaurant'
 import { useMenus } from '@/hooks/useMenus'
 import { useCredits } from '@/hooks/useCredits'
 import { useGeneration } from '@/hooks/useGeneration'
+import { PhotoCard } from '@/components/photos/PhotoCard'
+import { ShimmerCard } from '@/components/photos/ShimmerCard'
+import { FullscreenViewer } from '@/components/photos/FullscreenViewer'
 import type { MenuItem } from '@/types'
-
-// ── Photo card with staggered reveal ────────────────────────────────────────
-
-function PhotoCard({
-  item,
-  index,
-  regenerating,
-  onClick,
-  onDownload,
-}: {
-  item: MenuItem
-  index: number
-  regenerating: boolean
-  onClick: () => void
-  onDownload: () => void
-}) {
-  return (
-    <div
-      className="animate-photo-reveal relative group rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow duration-300 aspect-[4/5] bg-[#F0EDE8] cursor-pointer"
-      style={{ animationDelay: `${index * 80}ms` }}
-      onClick={onClick}
-    >
-      <img
-        src={item.image_url!}
-        alt={item.nom}
-        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-        loading="lazy"
-      />
-
-      {/* Gradient overlay — always visible on mobile, on hover on desktop */}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3 pt-12 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity duration-300">
-        <div className="flex items-end justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-white text-sm font-medium truncate leading-tight">{item.nom}</p>
-            {item.prix && (
-              <p className="text-white/60 text-xs mt-0.5">{item.prix}</p>
-            )}
-          </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDownload() }}
-            className="shrink-0 p-1.5 rounded-full bg-white/15 hover:bg-white/30 active:scale-90 transition-all"
-            aria-label="Download"
-          >
-            <Download size={14} className="text-white" />
-          </button>
-        </div>
-      </div>
-
-      {/* Category pill — top left */}
-      <div className="absolute top-2.5 left-2.5 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity duration-300">
-        <span className="bg-black/40 backdrop-blur-sm text-white text-[10px] font-medium px-2 py-0.5 rounded-full">
-          {item.categorie}
-        </span>
-      </div>
-
-      {/* Source badge — top right */}
-      {!regenerating && (
-        <div className="absolute top-2.5 right-2.5">
-          {item.image_source === 'user' && (
-            <span className="bg-[#C9A961] text-white text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-              <Camera size={9} />
-              PHOTO
-            </span>
-          )}
-          {item.image_source === 'enhanced' && (
-            <span className="bg-[#C9A961]/80 backdrop-blur-sm text-white text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-              <Sparkles size={9} />
-              ENHANCED
-            </span>
-          )}
-          {item.image_source === 'generated' && (
-            <span className="bg-[#2C2622]/50 backdrop-blur-sm text-white text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-              <Sparkles size={9} />
-              IA
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Regenerating overlay */}
-      {regenerating && (
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center">
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 size={28} className="animate-spin text-[#C9A961]" />
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Generation shimmer card (placeholder while generating) ──────────────────
-
-function ShimmerCard({ name, index }: { name: string; index: number }) {
-  return (
-    <div
-      className="animate-photo-reveal relative rounded-2xl overflow-hidden aspect-[4/5] bg-[#F0EDE8]"
-      style={{ animationDelay: `${index * 60}ms` }}
-    >
-      {/* Shimmer effect */}
-      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-progress-indeterminate" />
-
-      {/* Content */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4">
-        <div className="w-12 h-12 rounded-full bg-[#C9A961]/10 flex items-center justify-center">
-          <Sparkles size={20} className="text-[#C9A961] animate-shimmer-pulse" />
-        </div>
-        <p className="text-xs text-[#2C2622]/50 font-medium text-center truncate max-w-full">{name}</p>
-      </div>
-    </div>
-  )
-}
-
-// ── Fullscreen viewer with prev/next ────────────────────────────────────────
-
-function FullscreenViewer({
-  items,
-  currentIndex,
-  regenerating,
-  onClose,
-  onNavigate,
-  onRegenerate,
-  onDownload,
-}: {
-  items: MenuItem[]
-  currentIndex: number
-  regenerating: string | null
-  onClose: () => void
-  onNavigate: (index: number) => void
-  onRegenerate: (item: MenuItem) => void
-  onDownload: (item: MenuItem) => void
-}) {
-  const { t } = useI18n()
-  const item = items[currentIndex]
-  const hasPrev = currentIndex > 0
-  const hasNext = currentIndex < items.length - 1
-
-  // Keyboard navigation
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-      if (e.key === 'ArrowLeft' && hasPrev) onNavigate(currentIndex - 1)
-      if (e.key === 'ArrowRight' && hasNext) onNavigate(currentIndex + 1)
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [currentIndex, hasPrev, hasNext, onClose, onNavigate])
-
-  if (!item) return null
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/95 flex flex-col animate-fullscreen-enter">
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-3 text-white">
-        <div className="min-w-0 flex-1">
-          <p className="font-serif font-semibold text-lg truncate">{item.nom}</p>
-          <p className="text-xs text-white/40 mt-0.5">
-            {item.categorie}
-            {item.prix ? ` · ${item.prix}` : ''}
-            <span className="ml-2">{currentIndex + 1} {t('photos.counter')} {items.length}</span>
-          </p>
-        </div>
-        <button
-          onClick={onClose}
-          className="p-2 -mr-2 active:bg-white/10 rounded-full transition-colors"
-          aria-label="Close"
-        >
-          <X size={22} />
-        </button>
-      </div>
-
-      {/* Image + navigation arrows */}
-      <div className="flex-1 flex items-center justify-center relative px-4">
-        {/* Prev arrow */}
-        {hasPrev && (
-          <button
-            onClick={() => onNavigate(currentIndex - 1)}
-            className="absolute left-2 lg:left-4 z-10 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
-            aria-label={t('photos.prev')}
-          >
-            <ChevronLeft size={24} className="text-white" />
-          </button>
-        )}
-
-        {/* Image */}
-        <img
-          src={item.image_url!}
-          alt={item.nom}
-          className="max-w-full max-h-full object-contain rounded-xl select-none"
-          draggable={false}
-        />
-
-        {/* Regenerating overlay */}
-        {regenerating === item.id && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="bg-black/60 backdrop-blur-sm rounded-2xl p-6 flex flex-col items-center gap-3">
-              <Loader2 size={32} className="animate-spin text-[#C9A961]" />
-              <p className="text-white/70 text-xs">{t('photos.generating')}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Next arrow */}
-        {hasNext && (
-          <button
-            onClick={() => onNavigate(currentIndex + 1)}
-            className="absolute right-2 lg:right-4 z-10 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
-            aria-label={t('photos.next')}
-          >
-            <ChevronRight size={24} className="text-white" />
-          </button>
-        )}
-      </div>
-
-      {/* Bottom actions */}
-      <div className="flex items-center justify-center gap-8 px-6 py-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
-        <button
-          onClick={() => onRegenerate(item)}
-          disabled={regenerating === item.id}
-          className="flex flex-col items-center gap-1.5 text-white/60 hover:text-white active:text-[#C9A961] transition-colors disabled:opacity-40"
-        >
-          {regenerating === item.id ? (
-            <Loader2 size={22} className="animate-spin" />
-          ) : (
-            <RefreshCw size={22} />
-          )}
-          <span className="text-[10px] font-medium">{t('photos.regenerate')}</span>
-        </button>
-        <button
-          onClick={() => onDownload(item)}
-          className="flex flex-col items-center gap-1.5 text-white/60 hover:text-white active:text-[#C9A961] transition-colors"
-        >
-          <Download size={22} />
-          <span className="text-[10px] font-medium">{t('photos.download')}</span>
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── Main page ───────────────────────────────────────────────────────────────
 
 export function PhotosPage() {
   const { t } = useI18n()
@@ -277,7 +39,6 @@ export function PhotosPage() {
   }, [generating, reload, reloadCredits])
 
   // Auto-start generation if we arrived from MenuPage with selectedIds
-  // Includes user-uploaded photos (image_source='user') for automatic enhance
   const selectedIds = (location.state as { selectedIds?: string[] } | null)?.selectedIds
   useEffect(() => {
     if (hasAutoStarted || !selectedIds?.length || !restaurant || menuLoading || items.length === 0 || !hasCredits) return
@@ -291,12 +52,12 @@ export function PhotosPage() {
     }
   }, [selectedIds, restaurant, menuLoading, items, hasAutoStarted, hasCredits, generateBatch])
 
-  // Split items — user photos need enhance, generated photos are done
+  // Split items
   const withPhotos = items.filter((i) => i.image_url)
   const withoutPhotos = items.filter((i) => !i.image_url)
   const userPhotosCount = items.filter((i) => i.image_source === 'user').length
 
-  // Group photos by generation date (most recent first)
+  // Group photos by generation date
   const photoGroups = useMemo(() => {
     const groups = new Map<string, { label: string; sortKey: string; items: MenuItem[]; globalIndices: number[] }>()
 
@@ -333,17 +94,14 @@ export function PhotosPage() {
     if (!restaurant) return
     setRegenerating(item.id)
     try {
-      let newUrl: string | null = null
       if (item.image_source === 'user' && item.image_url) {
-        // User photo → enhance it (use the Storage URL as reference)
-        newUrl = await enhanceOne(item, restaurant, item.image_url)
+        await enhanceOne(item, restaurant, item.image_url)
       } else {
-        // AI photo → regenerate from scratch
-        newUrl = await regenerateOne(item, restaurant)
+        await regenerateOne(item, restaurant)
       }
-      if (newUrl) reload()
-    } catch (err) {
-      console.error('Regenerate/enhance error:', err)
+      reload()
+    } catch {
+      // Error is handled in the hook
     }
     setRegenerating(null)
   }, [restaurant, regenerateOne, enhanceOne, reload])
@@ -365,7 +123,7 @@ export function PhotosPage() {
     }
   }
 
-  // ── Loading ────────────────────────────────────────────────────────────────
+  // ── Loading ──────────────────────────────────────────────────────────────────
 
   if (menuLoading) {
     return (
@@ -375,7 +133,7 @@ export function PhotosPage() {
     )
   }
 
-  // ── Empty state ────────────────────────────────────────────────────────────
+  // ── Empty state ──────────────────────────────────────────────────────────────
 
   if (items.length === 0 && !generating) {
     return (
@@ -392,7 +150,7 @@ export function PhotosPage() {
     )
   }
 
-  // ── Main content ───────────────────────────────────────────────────────────
+  // ── Main content ─────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-5">
@@ -406,10 +164,9 @@ export function PhotosPage() {
         )}
       </div>
 
-      {/* ── Generation in progress ────────────────────────────────────────────── */}
+      {/* Generation in progress */}
       {generating && (
         <div className="bg-white rounded-2xl p-5 shadow-sm space-y-4 animate-fade-in">
-          {/* Header */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-[#C9A961]/10 flex items-center justify-center shrink-0">
               <Sparkles size={18} className="text-[#C9A961] animate-shimmer-pulse" />
@@ -423,7 +180,7 @@ export function PhotosPage() {
             </span>
           </div>
 
-          {/* Progress bar — indeterminate when 0 done, determinate otherwise */}
+          {/* Progress bar */}
           <div className="w-full h-1.5 bg-[#F0EDE8] rounded-full overflow-hidden">
             {progress.done === 0 ? (
               <div className="h-full w-1/3 bg-[#C9A961] rounded-full animate-progress-indeterminate" />
@@ -472,7 +229,7 @@ export function PhotosPage() {
         </div>
       )}
 
-      {/* ── No credits banner ─────────────────────────────────────────────────── */}
+      {/* No credits banner */}
       {!hasCredits && !generating && (withoutPhotos.length > 0 || userPhotosCount > 0) && (
         <div className="bg-[#D4895C]/10 border border-[#D4895C]/20 rounded-2xl p-4 flex items-center gap-3 animate-fade-in">
           <div className="w-10 h-10 rounded-xl bg-[#D4895C]/10 flex items-center justify-center shrink-0">
@@ -491,7 +248,7 @@ export function PhotosPage() {
         </div>
       )}
 
-      {/* ── Shimmer placeholders while generating ─────────────────────────────── */}
+      {/* Shimmer placeholders while generating */}
       {generating && progress.done === 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           {jobs.map((job, i) => (
@@ -500,7 +257,7 @@ export function PhotosPage() {
         </div>
       )}
 
-      {/* ── Photo grid grouped by date ─────────────────────────────────────────── */}
+      {/* Photo grid grouped by date */}
       {photoGroups.map((group) => (
         <div key={group.label} className="space-y-2">
           {photoGroups.length > 1 && (
@@ -523,7 +280,7 @@ export function PhotosPage() {
         </div>
       ))}
 
-      {/* ── Enhance user photos button — launches batch enhance ─────────────── */}
+      {/* Enhance user photos button */}
       {userPhotosCount > 0 && !generating && restaurant && (
         <button
           onClick={() => {
@@ -540,7 +297,7 @@ export function PhotosPage() {
         </button>
       )}
 
-      {/* ── Pending items counter ──────────────────────────────────────────────── */}
+      {/* Pending items counter */}
       {withoutPhotos.length > 0 && !generating && (
         <div className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3 animate-fade-in">
           <div className="w-10 h-10 rounded-xl bg-[#F0EDE8] flex items-center justify-center shrink-0">
@@ -565,7 +322,7 @@ export function PhotosPage() {
         </div>
       )}
 
-      {/* ── Fullscreen viewer ─────────────────────────────────────────────────── */}
+      {/* Fullscreen viewer */}
       {fullscreenIndex !== null && (
         <FullscreenViewer
           items={withPhotos}

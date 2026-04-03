@@ -85,7 +85,7 @@ export function MenuPage() {
 
       reload()
     } catch (err) {
-      console.error('Photo upload error:', err)
+      if (import.meta.env.DEV) console.error('Photo upload error:', err)
     }
 
     setEnhancingId(null)

@@ -34,7 +34,7 @@ export function MenuItemCard({ item, selected, enhancing, onToggleSelect, onEdit
       const base64 = await resizeImageToBase64(file, 1024)
       onDropPhoto(base64)
     } catch (err) {
-      console.error('Image resize failed:', err)
+      if (import.meta.env.DEV) console.error('Image resize failed:', err)
     }
   }
 

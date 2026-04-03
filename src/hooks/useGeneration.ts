@@ -79,13 +79,13 @@ async function persistImage(itemId: string, dataUri: string, userId: string, ima
     .from('menu_items')
     .update({ image_url: publicUrl, image_source: imageSource })
     .eq('id', itemId)
-  if (updateError) console.error('menu_items update error:', updateError.message)
+  if (updateError && import.meta.env.DEV) console.error('menu_items update error:', updateError.message)
 
   // Insert into generated_images
   const { error: insertError } = await supabase
     .from('generated_images')
     .insert({ menu_item_id: itemId, image_url: publicUrl })
-  if (insertError) console.error('generated_images insert error:', insertError.message)
+  if (insertError && import.meta.env.DEV) console.error('generated_images insert error:', insertError.message)
 
   return publicUrl
 }
@@ -143,7 +143,7 @@ export function useGeneration(): UseGenerationReturn {
             msg = body?.error || body?.message || msg
           }
         } catch { /* not parseable */ }
-        console.error('generate-dish-photo error:', msg)
+        if (import.meta.env.DEV) console.error('generate-dish-photo error:', msg)
         throw new Error(msg)
       }
       if (!data?.success) throw new Error(data?.error || 'Erreur de génération')
