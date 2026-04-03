@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Camera, Loader2, LogOut, Sparkles, X, Check, Zap, Crown, Flame } from 'lucide-react'
+import { Camera, Loader2, LogOut, Sparkles, X, Check, Zap, Crown, Flame, Eye, Upload } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { useAuth } from '@/lib/auth'
 import { useRestaurant } from '@/hooks/useRestaurant'
@@ -14,8 +14,8 @@ export function ProfilePage() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const {
-    restaurant, loading, saving, saved, error, clearError,
-    updateField, searchGoogle, applyGoogleData, uploadPhoto,
+    restaurant, loading, saving, saved, analyzingStyle, error, clearError,
+    updateField, searchGoogle, applyGoogleData, uploadPhoto, selectStylePhoto,
   } = useRestaurant()
   const { credits, reload: reloadCredits } = useCredits()
   const { checkout, loading: checkoutLoading, error: checkoutError, clearError: clearCheckoutError } = useCheckout()
@@ -83,6 +83,7 @@ export function ProfilePage() {
   const completedCount = stepDefs.filter(s => s.done).length
   const completionPct = Math.round((completedCount / stepDefs.length) * 100)
   const isNewRestaurant = completedCount === 0
+  const googlePhotoUrls = restaurant?.google_business_data?.photo_urls ?? []
 
   if (loading) {
     return (
@@ -235,52 +236,141 @@ export function ProfilePage() {
         onSelect={handleCuisineSelect}
       />
 
-      {/* ── Restaurant photo ────────────────────────────────────────────────── */}
-      <section className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
-          {t('profile.photo')}
-          <span className="ml-1.5 normal-case tracking-normal text-gray-400">({t('profile.photo.optional')})</span>
-        </label>
-
+      {/* ── ADN visuel — photo de référence + style ───────────────────────── */}
+      <section className="rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+        {/* Hero: selected photo with gradient overlay */}
         {restaurant?.style_photo_url ? (
-          <div className="relative rounded-xl overflow-hidden">
+          <div className="relative">
             <img
               src={restaurant.style_photo_url}
               alt={restaurant.name || t('profile.title')}
-              className="w-full h-44 lg:h-56 object-cover"
+              className="w-full h-48 lg:h-60 object-cover"
             />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs px-3 py-2 rounded-lg flex items-center gap-1.5 active:bg-black/80 transition-colors"
-            >
-              <Camera size={14} />
-              {t('profile.photo.change')}
-            </button>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 px-5 pb-4 flex items-end justify-between">
+              <div>
+                <p className="text-[10px] font-medium text-white/60 uppercase tracking-wider">{t('profile.style.visualDna')}</p>
+                {analyzingStyle ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#C9A961] mt-1">
+                    <Loader2 size={12} className="animate-spin" />
+                    {t('profile.style.analyzing')}
+                  </span>
+                ) : restaurant?.style_description ? (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-[#7C9A6B] mt-1">
+                    <Eye size={12} />
+                    {t('profile.style.detected')}
+                  </span>
+                ) : null}
+              </div>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="bg-white/20 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 active:bg-white/30 transition-colors"
+              >
+                <Upload size={12} />
+                {t('profile.photo.change')}
+              </button>
+            </div>
           </div>
         ) : (
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="w-full h-32 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-gray-300 hover:text-gray-500 active:border-[#C9A961] active:text-[#C9A961] transition-colors"
-          >
-            {uploading ? (
-              <Loader2 size={28} className="animate-spin" />
-            ) : (
-              <>
-                <Camera size={28} />
-                <span className="text-sm">{t('profile.photo.add')}</span>
-              </>
-            )}
-          </button>
+          <div className="bg-white px-5 pt-5">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">{t('profile.style.visualDna')}</p>
+            <p className="text-xs text-gray-400 mt-1 mb-3">{t('profile.style.hint')}</p>
+          </div>
         )}
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          onChange={handlePhotoChange}
-          className="hidden"
-        />
+        <div className="bg-white p-5 space-y-4">
+          {/* Google photos picker */}
+          {googlePhotoUrls.length > 0 && (
+            <div>
+              <p className="text-xs text-[#2C2622]/50 mb-2.5">{t('profile.photo.pickGoogle')}</p>
+              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-2">
+                {googlePhotoUrls.map((url, i) => {
+                  const isSelected = restaurant?.style_photo_url === url
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => selectStylePhoto(url)}
+                      className={`relative aspect-square rounded-xl overflow-hidden transition-all active:scale-95 ${
+                        isSelected
+                          ? 'ring-2 ring-[#C9A961] ring-offset-2 shadow-md'
+                          : 'ring-1 ring-gray-100 hover:ring-gray-300 hover:shadow-sm'
+                      }`}
+                    >
+                      <img src={url} alt="" className="w-full h-full object-cover" />
+                      {isSelected && (
+                        <div className="absolute inset-0 bg-gradient-to-t from-[#C9A961]/40 to-transparent flex items-end justify-center pb-1.5">
+                          <span className="bg-[#C9A961] text-white rounded-full p-0.5">
+                            <Check size={12} strokeWidth={3} />
+                          </span>
+                        </div>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Upload — shown as primary only when no Google photos */}
+          {googlePhotoUrls.length === 0 && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="w-full h-32 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-gray-300 hover:text-gray-500 active:border-[#C9A961] active:text-[#C9A961] transition-colors"
+            >
+              {uploading ? (
+                <Loader2 size={24} className="animate-spin" />
+              ) : (
+                <>
+                  <Camera size={24} />
+                  <span className="text-sm">{t('profile.photo.add')}</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Compact upload when Google photos exist but user wants their own */}
+          {googlePhotoUrls.length > 0 && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="w-full flex items-center justify-center gap-2 py-2.5 text-xs text-[#2C2622]/35 hover:text-[#2C2622]/60 active:text-[#C9A961] transition-colors"
+            >
+              {uploading ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <>
+                  <Upload size={14} />
+                  {t('profile.photo.uploadOwn')}
+                </>
+              )}
+            </button>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handlePhotoChange}
+            className="hidden"
+          />
+
+          {/* Style description — elegant sub-card */}
+          {restaurant?.style_description && (
+            <div className="bg-[#FAF8F5] rounded-xl p-4 space-y-2 border border-[#C9A961]/10">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-semibold text-[#C9A961] uppercase tracking-wider">{t('profile.style.description')}</label>
+                <Eye size={12} className="text-[#C9A961]/40" />
+              </div>
+              <textarea
+                value={restaurant.style_description}
+                onChange={(e) => updateField('style_description', e.target.value)}
+                rows={2}
+                className="w-full text-sm text-[#2C2622]/80 leading-relaxed bg-transparent outline-none resize-none placeholder:text-[#2C2622]/30"
+              />
+            </div>
+          )}
+        </div>
       </section>
 
       {/* ── Quick link: Menu ──────────────────────────────────────────────────── */}

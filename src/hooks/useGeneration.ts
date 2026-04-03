@@ -26,6 +26,7 @@ function buildDish(
   restaurant: Restaurant,
   options?: { instructions?: string; sourceImageUrl?: string; isEnhance?: boolean },
 ) {
+  const googlePhotoUrls = restaurant.google_business_data?.photo_urls?.slice(0, 2) ?? []
   return {
     id: item.id,
     name: item.nom,
@@ -39,6 +40,8 @@ function buildDish(
     isEnhance: options?.isEnhance,
     restaurantCoverUrl: restaurant.style_photo_url || undefined,
     restaurantStyleDescription: restaurant.style_description || undefined,
+    googlePhotoUrls: googlePhotoUrls.length > 0 ? googlePhotoUrls : undefined,
+    dishReferenceUrl: restaurant.dish_reference_url || undefined,
   }
 }
 

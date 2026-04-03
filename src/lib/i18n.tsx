@@ -71,6 +71,13 @@ const translations = {
   'profile.pack.complete': { fr: 'Grande Carte', en: 'Full Catalog' },
   'profile.pack.complete.desc': { fr: 'Pour les grandes cartes et les régénérations', en: 'For large menus and regenerations' },
   'profile.stripe.trust': { fr: 'Paiement sécurisé par Stripe · Pas d\'abonnement', en: 'Secure payment by Stripe · No subscription' },
+  'profile.style.analyzing': { fr: 'Analyse du style...', en: 'Analyzing style...' },
+  'profile.style.detected': { fr: 'Style détecté', en: 'Style detected' },
+  'profile.style.description': { fr: 'Style visuel', en: 'Visual style' },
+  'profile.photo.pickGoogle': { fr: 'Choisissez la photo qui représente votre ambiance', en: 'Pick the photo that represents your vibe' },
+  'profile.photo.uploadOwn': { fr: 'Ou importer ma propre photo', en: 'Or upload my own photo' },
+  'profile.style.visualDna': { fr: 'ADN visuel', en: 'Visual DNA' },
+  'profile.style.hint': { fr: 'Choisissez une photo pour que l\'IA génère des visuels dans votre style', en: 'Choose a photo so AI generates visuals in your style' },
 
   // ── Menu ────────────────────────────────────────────────────────────────────
   'menu.title': { fr: 'Ma Carte', en: 'My Menu' },

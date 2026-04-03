@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 test2.txt
 .claude/scheduled_tasks.lock
+
+.vercel

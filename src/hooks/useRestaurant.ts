@@ -15,12 +15,14 @@ interface UseRestaurantReturn {
   loading: boolean
   saving: boolean
   saved: boolean
+  analyzingStyle: boolean
   error: string | null
   clearError: () => void
   updateField: <K extends keyof Restaurant>(key: K, value: Restaurant[K]) => void
   searchGoogle: (query: string) => Promise<GoogleSearchResult[]>
   applyGoogleData: (placeId: string) => Promise<void>
   uploadPhoto: (file: File) => Promise<string | null>
+  selectStylePhoto: (url: string) => void
 }
 
 export function useRestaurant(): UseRestaurantReturn {
@@ -30,6 +32,7 @@ export function useRestaurant(): UseRestaurantReturn {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [analyzingStyle, setAnalyzingStyle] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -156,6 +159,37 @@ export function useRestaurant(): UseRestaurantReturn {
     }
   }, [])
 
+  // Analyze restaurant style from a single photo (non-blocking, background)
+  const analyzeStyleFromPhoto = useCallback(async (photoUrl: string, restaurantId: string) => {
+    setAnalyzingStyle(true)
+    try {
+      await ensureSession()
+      const { data, error: fnError } = await supabase.functions.invoke('analyze-style', {
+        body: { restaurantPhotoUrl: photoUrl },
+      })
+      if (fnError || !data?.styleDescription) return
+
+      const styleDescription = data.styleDescription as string
+      await supabase
+        .from('restaurants')
+        .update({ style_description: styleDescription })
+        .eq('id', restaurantId)
+
+      setRestaurant((prev) => prev ? { ...prev, style_description: styleDescription } : prev)
+    } catch {
+      // Style analysis is non-critical — fail silently
+    } finally {
+      setAnalyzingStyle(false)
+    }
+  }, [])
+
+  // Select a photo (Google or any URL) as the restaurant's style reference
+  const selectStylePhoto = useCallback((url: string) => {
+    if (!restaurant) return
+    updateField('style_photo_url', url)
+    analyzeStyleFromPhoto(url, restaurant.id)
+  }, [restaurant, updateField, analyzeStyleFromPhoto])
+
   // Apply Google details to the restaurant — saves IMMEDIATELY (not debounced)
   // because this is a deliberate user action and must persist before navigation
   const applyGoogleData = useCallback(async (placeId: string) => {
@@ -234,20 +268,22 @@ export function useRestaurant(): UseRestaurantReturn {
       .getPublicUrl(path)
 
     const publicUrl = urlData.publicUrl
-    updateField('style_photo_url', publicUrl)
+    selectStylePhoto(publicUrl)
     return publicUrl
-  }, [restaurant, updateField])
+  }, [restaurant, selectStylePhoto])
 
   return {
     restaurant,
     loading,
     saving,
     saved,
+    analyzingStyle,
     error,
     clearError,
     updateField,
     searchGoogle,
     applyGoogleData,
     uploadPhoto,
+    selectStylePhoto,
   }
 }
