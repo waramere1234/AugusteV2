@@ -20,14 +20,21 @@ export function useCheckout() {
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const VALID_PACK_IDS = CREDIT_PACKS.map((p) => p.id)
+
   const checkout = useCallback(async (packId: string) => {
+    if (!VALID_PACK_IDS.includes(packId as CreditPack['id'])) {
+      setError('Invalid pack')
+      return
+    }
+
     setLoading(packId)
     setError(null)
 
     try {
       await ensureSession()
 
-      const successUrl = `${window.location.origin}/profil?payment=success&pack=${packId}`
+      const successUrl = `${window.location.origin}/profil?payment=success&pack=${encodeURIComponent(packId)}`
       const cancelUrl = `${window.location.origin}/profil?payment=cancelled`
 
       const { data, error: fnError } = await supabase.functions.invoke('create-checkout', {

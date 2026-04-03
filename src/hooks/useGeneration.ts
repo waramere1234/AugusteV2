@@ -45,8 +45,9 @@ function buildDish(
   }
 }
 
-/** Get the current user's ID from Supabase Auth */
+/** Get the current user's ID from Supabase Auth (ensures valid session first) */
 async function getUserId(): Promise<string> {
+  await ensureSession()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
   return user.id

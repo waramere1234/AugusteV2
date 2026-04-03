@@ -185,6 +185,18 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
 
   // ── Import from URL (Uber Eats, Deliveroo, etc.) ───────────────────────────
   const importFromUrl = useCallback(async (url: string, restId: string) => {
+    // Validate URL scheme to prevent SSRF (javascript:, file:, data:, etc.)
+    try {
+      const parsed = new URL(url)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        setError('error.menu.invalidUrl')
+        return
+      }
+    } catch {
+      setError('error.menu.invalidUrl')
+      return
+    }
+
     setExtracting(true); setExtractedItems([]); setError(null)
     try {
       await ensureSession()
@@ -273,7 +285,9 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
           description: updates.description,
           category: item.categorie || 'plat',
           source: 'user_validated',
-        }, { onConflict: 'cuisine_profile_id,canonical_name' }).then(() => {})
+        }, { onConflict: 'cuisine_profile_id,canonical_name' }).then(({ error: e }) => {
+          if (e && import.meta.env.DEV) console.error('dish_templates upsert error:', e.message)
+        })
       }
     }
   }, [items, menu])

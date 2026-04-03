@@ -23,6 +23,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s)
       setUser(s?.user ?? null)
+    }).catch(() => {
+      // Auth init failed — user stays logged out
+    }).finally(() => {
       setLoading(false)
     })
 
@@ -37,16 +40,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signIn(email: string, password: string) {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    return { error: error ? new Error(error.message) : null }
+    if (!error) return { error: null }
+    const message = error.status === 400
+      ? 'Invalid email or password'
+      : error.status === 429
+        ? 'Too many attempts. Please try again later.'
+        : 'Authentication failed. Please try again.'
+    return { error: new Error(message) }
   }
 
   async function signUp(email: string, password: string) {
     const { error } = await supabase.auth.signUp({ email, password })
-    return { error: error ? new Error(error.message) : null }
+    if (!error) return { error: null }
+    const message = error.status === 422
+      ? 'Invalid email or password format'
+      : error.status === 429
+        ? 'Too many attempts. Please try again later.'
+        : 'Sign up failed. Please try again.'
+    return { error: new Error(message) }
   }
 
   async function signOut() {
-    await supabase.auth.signOut()
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
   }
 
   return (

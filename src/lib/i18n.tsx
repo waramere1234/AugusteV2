@@ -144,6 +144,7 @@ const translations = {
   'error.menu.extractionFailed': { fr: 'Extraction échouée', en: 'Extraction failed' },
   'error.menu.noItems': { fr: 'Aucun plat détecté', en: 'No items detected' },
   'error.menu.extractionError': { fr: 'Erreur lors de l\'extraction', en: 'Extraction error' },
+  'error.menu.invalidUrl': { fr: 'URL invalide — utilisez un lien https://', en: 'Invalid URL — use an https:// link' },
 
   // ── Photos ──────────────────────────────────────────────────────────────────
   'menu.enrichDescriptions': { fr: 'Enrichir les descriptions', en: 'Enrich descriptions' },

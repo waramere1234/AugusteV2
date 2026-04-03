@@ -4,6 +4,8 @@ import { Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import type { MenuItem, Restaurant } from '@/types'
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export function PublicMenuPage() {
   const { restaurantId } = useParams<{ restaurantId: string }>()
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
@@ -11,7 +13,10 @@ export function PublicMenuPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!restaurantId) return
+    if (!restaurantId || !UUID_RE.test(restaurantId)) {
+      setLoading(false)
+      return
+    }
 
     async function load() {
       // Load restaurant

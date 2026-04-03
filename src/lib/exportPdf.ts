@@ -54,7 +54,10 @@ const THEME_COLORS: Record<string, ThemeColors> = {
 
 async function fetchImageAsDataUrl(url: string): Promise<string | null> {
   try {
+    // Only fetch https URLs to prevent SSRF
+    if (!url.startsWith('https://')) return null
     const res = await fetch(url)
+    if (!res.ok) return null
     const blob = await res.blob()
     return new Promise((resolve) => {
       const reader = new FileReader()

@@ -16,7 +16,10 @@ export async function downloadPhotosZip(
   for (let i = 0; i < photosItems.length; i++) {
     const item = photosItems[i]
     try {
+      // Only fetch https URLs to prevent SSRF
+      if (!item.image_url!.startsWith('https://')) continue
       const res = await fetch(item.image_url!)
+      if (!res.ok) continue
       const blob = await res.blob()
       const ext = blob.type.includes('webp') ? 'webp' : blob.type.includes('png') ? 'png' : 'jpg'
       const safeName = item.nom.replace(/[^a-zA-Z0-9À-ÿ\s-_]/g, '').trim()
