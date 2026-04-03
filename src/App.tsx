@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/lib/auth'
 import { I18nProvider } from '@/lib/i18n'
@@ -7,7 +8,8 @@ import { LoginPage } from '@/pages/LoginPage'
 import { ProfilePage } from '@/pages/ProfilePage'
 import { MenuPage } from '@/pages/MenuPage'
 import { PhotosPage } from '@/pages/PhotosPage'
-import { ExportPage } from '@/pages/ExportPage'
+
+const ExportPage = lazy(() => import('@/pages/ExportPage').then((m) => ({ default: m.ExportPage })))
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
@@ -67,7 +69,7 @@ export default function App() {
               <Route path="/profil" element={<ProfilePage />} />
               <Route path="/menu" element={<MenuPage />} />
               <Route path="/photos" element={<PhotosPage />} />
-              <Route path="/export" element={<ExportPage />} />
+              <Route path="/export" element={<Suspense fallback={null}><ExportPage /></Suspense>} />
             </Route>
 
             {/* Default redirect */}
