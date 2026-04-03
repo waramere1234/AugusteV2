@@ -125,15 +125,14 @@ export async function generateMenuPdf(
   pdf.setLineWidth(0.5)
   pdf.line(W / 2 - 30, 105, W / 2 + 30, 105)
 
-  // ── Content pages — group items by category ─────────────────────────────────
+  // ── Content pages — ALL items grouped by category ──────────────────────────
 
-  const photosItems = items.filter((i) => i.image_url)
-  const categories = [...new Set(photosItems.map((i) => i.categorie).filter(Boolean))]
-  const totalItems = photosItems.length
+  const categories = [...new Set(items.map((i) => i.categorie).filter(Boolean))]
+  const totalItems = items.length
   let processedItems = 0
 
   for (const category of categories) {
-    const catItems = photosItems.filter((i) => i.categorie === category)
+    const catItems = items.filter((i) => i.categorie === category)
 
     pdf.addPage()
     pdf.setFillColor(...colors.bg)
@@ -153,8 +152,12 @@ export async function generateMenuPdf(
     let y = 38
 
     for (const item of catItems) {
-      // Check if we need a new page (need ~65mm per item with photo)
-      if (y + 60 > H - MARGIN) {
+      const hasPhoto = !!item.image_url
+      const cardH = hasPhoto ? 55 : 25
+      const neededH = cardH + 5
+
+      // Check if we need a new page
+      if (y + neededH > H - MARGIN) {
         pdf.addPage()
         pdf.setFillColor(...colors.bg)
         pdf.rect(0, 0, W, H, 'F')
@@ -163,12 +166,11 @@ export async function generateMenuPdf(
 
       // Card background
       pdf.setFillColor(...colors.cardBg)
-      const cardH = item.image_url ? 55 : 25
       pdf.roundedRect(MARGIN, y, CONTENT_W, cardH, 3, 3, 'F')
 
-      // Photo (left side)
-      if (item.image_url) {
-        const dataUrl = await fetchImageAsDataUrl(item.image_url)
+      // Photo (left side) — only if item has one
+      if (hasPhoto) {
+        const dataUrl = await fetchImageAsDataUrl(item.image_url!)
         if (dataUrl) {
           try {
             pdf.addImage(dataUrl, 'JPEG', MARGIN + 2, y + 2, 50, 50, undefined, 'FAST')
@@ -179,8 +181,8 @@ export async function generateMenuPdf(
       }
 
       // Text (right of photo or full width)
-      const textX = item.image_url ? MARGIN + 56 : MARGIN + 5
-      const textW = item.image_url ? CONTENT_W - 60 : CONTENT_W - 10
+      const textX = hasPhoto ? MARGIN + 56 : MARGIN + 5
+      const textW = hasPhoto ? CONTENT_W - 60 : CONTENT_W - 10
 
       // Name
       pdf.setFont('helvetica', 'bold')
@@ -203,7 +205,7 @@ export async function generateMenuPdf(
         pdf.setFontSize(8)
         pdf.setTextColor(...colors.muted)
         const descText = pdf.splitTextToSize(item.description, textW)
-        const maxDescLines = item.image_url ? 4 : 2
+        const maxDescLines = hasPhoto ? 4 : 2
         pdf.text(descText.slice(0, maxDescLines), textX, y + 14)
       }
 
@@ -211,75 +213,6 @@ export async function generateMenuPdf(
 
       processedItems++
       onProgress?.(Math.round((processedItems / totalItems) * 100))
-    }
-  }
-
-  // ── Items without photos — text-only list ─────────────────────────────────
-
-  const noPhotoItems = items.filter((i) => !i.image_url)
-  if (noPhotoItems.length > 0) {
-    const noPhotoCategories = [...new Set(noPhotoItems.map((i) => i.categorie).filter(Boolean))]
-
-    for (const category of noPhotoCategories) {
-      const catItems = noPhotoItems.filter((i) => i.categorie === category)
-
-      pdf.addPage()
-      pdf.setFillColor(...colors.bg)
-      pdf.rect(0, 0, W, H, 'F')
-
-      pdf.setFont('helvetica', 'bold')
-      pdf.setFontSize(20)
-      pdf.setTextColor(...colors.accent)
-      pdf.text(category.toUpperCase(), MARGIN, 25)
-
-      pdf.setDrawColor(...colors.accent)
-      pdf.setLineWidth(0.3)
-      pdf.line(MARGIN, 28, MARGIN + 40, 28)
-
-      let y = 38
-
-      for (const item of catItems) {
-        if (y + 20 > H - MARGIN) {
-          pdf.addPage()
-          pdf.setFillColor(...colors.bg)
-          pdf.rect(0, 0, W, H, 'F')
-          y = 20
-        }
-
-        // Name + price on same line
-        pdf.setFont('helvetica', 'bold')
-        pdf.setFontSize(11)
-        pdf.setTextColor(...colors.text)
-        pdf.text(item.nom, MARGIN + 3, y + 5)
-
-        if (item.prix) {
-          pdf.setTextColor(...colors.accent)
-          pdf.text(item.prix, MARGIN + CONTENT_W - 3, y + 5, { align: 'right' })
-        }
-
-        // Dotted line between name and price
-        pdf.setDrawColor(...colors.muted)
-        pdf.setLineWidth(0.1)
-        const nameWidth = pdf.getTextWidth(item.nom) + MARGIN + 5
-        const priceX = item.prix ? MARGIN + CONTENT_W - 3 - pdf.getTextWidth(item.prix) - 2 : MARGIN + CONTENT_W - 3
-        if (priceX > nameWidth) {
-          for (let dx = nameWidth; dx < priceX; dx += 2) {
-            pdf.line(dx, y + 5, dx + 0.5, y + 5)
-          }
-        }
-
-        // Description
-        if (item.description) {
-          pdf.setFont('helvetica', 'normal')
-          pdf.setFontSize(8)
-          pdf.setTextColor(...colors.muted)
-          const descLines = pdf.splitTextToSize(item.description, CONTENT_W - 6)
-          pdf.text(descLines.slice(0, 2), MARGIN + 3, y + 10)
-          y += 8
-        }
-
-        y += 12
-      }
     }
   }
 
