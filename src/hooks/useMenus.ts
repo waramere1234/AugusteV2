@@ -25,8 +25,8 @@ interface UseMenusReturn {
   enriching: boolean
   extractedItems: string[]
   error: string | null
-  importFromFiles: (files: File[], restaurantId: string) => Promise<void>
-  importFromUrl: (url: string, restaurantId: string) => Promise<void>
+  importFromFiles: (files: File[], restaurantId: string, cuisineProfileId?: string) => Promise<void>
+  importFromUrl: (url: string, restaurantId: string, cuisineProfileId?: string) => Promise<void>
   enrichDescriptions: (cuisineProfileId: string) => Promise<void>
   updateItem: (itemId: string, updates: Partial<MenuItem>) => Promise<void>
   deleteItem: (itemId: string) => Promise<void>
@@ -104,13 +104,14 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), [])
 
-  // ── Shared: animate items + save to DB ──────────────────────────────────────
+  // ── Shared: animate items + save to DB + auto-enrich ────────────────────────
   async function processExtraction(
     aiItems: Record<string, unknown>[],
     restId: string,
     fileName: string,
     sourceType: 'photo' | 'file' | 'url',
     includeImageUrl: boolean,
+    cuisineProfileId?: string,
   ) {
     // Animate (cancellable)
     for (const item of aiItems) {
@@ -143,10 +144,19 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
     if (insertError) throw new Error(insertError.message)
 
     reload()
+
+    // Auto-enrich descriptions for items without one
+    if (cuisineProfileId) {
+      const needsEnrich = aiItems.filter((i) => !((i.description as string) ?? '').trim())
+      if (needsEnrich.length > 0) {
+        // Fire-and-forget — don't block the extraction flow
+        setTimeout(() => enrichDescriptions(cuisineProfileId), 500)
+      }
+    }
   }
 
   // ── Import from files (photos and/or PDFs) ─────────────────────────────────
-  const importFromFiles = useCallback(async (files: File[], restId: string) => {
+  const importFromFiles = useCallback(async (files: File[], restId: string, cuisineProfileId?: string) => {
     for (const file of files) {
       if (file.size > MAX_FILE_SIZE) { setError('error.menu.fileTooLarge'); return }
       const mime = file.type || guessMimeType(file.name)
@@ -175,7 +185,7 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
       const hasPdf = files.some(f => (f.type || guessMimeType(f.name)) === 'application/pdf')
       const sourceType = files.length === 1 && !hasPdf ? 'photo' as const : 'file' as const
       const fileName = files.length === 1 ? files[0].name : `${files.length} fichiers`
-      await processExtraction(aiItems, restId, fileName, sourceType, false)
+      await processExtraction(aiItems, restId, fileName, sourceType, false, cuisineProfileId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'error.menu.extractionError')
     } finally {
@@ -184,7 +194,7 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
   }, [reload])
 
   // ── Import from URL (Uber Eats, Deliveroo, etc.) ───────────────────────────
-  const importFromUrl = useCallback(async (url: string, restId: string) => {
+  const importFromUrl = useCallback(async (url: string, restId: string, cuisineProfileId?: string) => {
     // Validate URL scheme to prevent SSRF (javascript:, file:, data:, etc.)
     try {
       const parsed = new URL(url)
@@ -210,7 +220,7 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
       const aiItems = data.data as Record<string, unknown>[]
       if (!aiItems?.length) throw new Error('error.menu.noItems')
 
-      await processExtraction(aiItems, restId, url, 'url', true)
+      await processExtraction(aiItems, restId, url, 'url', true, cuisineProfileId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'error.menu.extractionError')
     } finally {

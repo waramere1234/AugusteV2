@@ -15,6 +15,12 @@ const translations = {
   'auth.logout': { fr: 'Déconnexion', en: 'Log out' },
   'auth.email': { fr: 'Email', en: 'Email' },
   'auth.password': { fr: 'Mot de passe', en: 'Password' },
+  'auth.forgotPassword': { fr: 'Mot de passe oublié ?', en: 'Forgot password?' },
+  'auth.sendReset': { fr: 'Envoyer le lien', en: 'Send reset link' },
+  'auth.resetSent': { fr: 'Email envoyé !', en: 'Email sent!' },
+  'auth.resetSentDesc': { fr: 'Vérifiez votre boîte mail et cliquez sur le lien pour réinitialiser votre mot de passe.', en: 'Check your inbox and click the link to reset your password.' },
+  'auth.resetError': { fr: 'Impossible d\'envoyer l\'email. Vérifiez votre adresse.', en: 'Could not send email. Check your address.' },
+  'auth.backToLogin': { fr: 'Retour à la connexion', en: 'Back to login' },
 
   // ── Profile ─────────────────────────────────────────────────────────────────
   'profile.title': { fr: 'Mon Restaurant', en: 'My Restaurant' },
