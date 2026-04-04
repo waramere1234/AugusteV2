@@ -18,6 +18,7 @@ export function LoginPage() {
   const [resetSent, setResetSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [acceptCgu, setAcceptCgu] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -115,13 +116,30 @@ export function LoginPage() {
               </div>
             )}
 
+            {!resetMode && isSignUp && (
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={acceptCgu}
+                  onChange={(e) => setAcceptCgu(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-gray-300 text-[#C9A961] focus:ring-[#C9A961] accent-[#C9A961]"
+                />
+                <span className="text-xs text-[#2C2622]/50 leading-relaxed">
+                  {t('auth.acceptCgu')}{' '}
+                  <a href="/cgu" target="_blank" className="text-[#C9A961] underline">{t('auth.cguLink')}</a>
+                  {' '}{t('auth.andThe')}{' '}
+                  <a href="/confidentialite" target="_blank" className="text-[#C9A961] underline">{t('auth.privacyLink')}</a>
+                </span>
+              </label>
+            )}
+
             {error && (
               <p className="text-sm text-red-500 text-center">{error}</p>
             )}
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (isSignUp && !resetMode && !acceptCgu)}
               className="w-full py-3.5 bg-[#C9A961] text-white rounded-xl text-sm font-semibold active:scale-[0.98] transition-transform disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading && <Loader2 size={16} className="animate-spin" />}

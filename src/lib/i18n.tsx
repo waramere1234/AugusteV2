@@ -21,6 +21,10 @@ const translations = {
   'auth.resetSentDesc': { fr: 'Vérifiez votre boîte mail et cliquez sur le lien pour réinitialiser votre mot de passe.', en: 'Check your inbox and click the link to reset your password.' },
   'auth.resetError': { fr: 'Impossible d\'envoyer l\'email. Vérifiez votre adresse.', en: 'Could not send email. Check your address.' },
   'auth.backToLogin': { fr: 'Retour à la connexion', en: 'Back to login' },
+  'auth.acceptCgu': { fr: "J'accepte les", en: 'I accept the' },
+  'auth.cguLink': { fr: "Conditions Générales d'Utilisation", en: 'Terms of Service' },
+  'auth.andThe': { fr: 'et la', en: 'and the' },
+  'auth.privacyLink': { fr: 'Politique de confidentialité', en: 'Privacy Policy' },
 
   // ── Profile ─────────────────────────────────────────────────────────────────
   'profile.title': { fr: 'Mon Restaurant', en: 'My Restaurant' },
