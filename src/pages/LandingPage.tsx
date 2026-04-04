@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useI18n } from '@/lib/i18n'
 import { Camera, Sparkles, FileDown, ChevronRight, Menu, X } from 'lucide-react'
 
@@ -386,6 +386,11 @@ export function LandingPage() {
       <footer className="py-10 px-5 border-t border-[#C9A961]/10">
         <div className="max-w-5xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-4">
           <p className="text-sm font-serif font-bold text-[#C9A961]">Auguste</p>
+          <div className="flex items-center gap-4">
+            <Link to="/cgu" className="text-xs text-[#2C2622]/35 hover:text-[#C9A961] transition-colors">CGU</Link>
+            <Link to="/mentions-legales" className="text-xs text-[#2C2622]/35 hover:text-[#C9A961] transition-colors">Mentions légales</Link>
+            <Link to="/confidentialite" className="text-xs text-[#2C2622]/35 hover:text-[#C9A961] transition-colors">Confidentialité</Link>
+          </div>
           <p className="text-xs text-[#2C2622]/35">
             &copy; {new Date().getFullYear()} Auguste. {t('landing.footerRights')}
           </p>

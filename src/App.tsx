@@ -9,6 +9,7 @@ import { LoginPage } from '@/pages/LoginPage'
 import { ProfilePage } from '@/pages/ProfilePage'
 import { MenuPage } from '@/pages/MenuPage'
 import { PhotosPage } from '@/pages/PhotosPage'
+import { LegalPage } from '@/pages/LegalPage'
 
 const ExportPage = lazy(() => import('@/pages/ExportPage').then((m) => ({ default: m.ExportPage })))
 const PublicMenuPage = lazy(() => import('@/pages/PublicMenuPage').then((m) => ({ default: m.PublicMenuPage })))
@@ -67,6 +68,9 @@ export default function App() {
             <Route path="/" element={<PublicHome />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/m/:restaurantId" element={<Suspense fallback={null}><PublicMenuPage /></Suspense>} />
+            <Route path="/cgu" element={<LegalPage />} />
+            <Route path="/mentions-legales" element={<LegalPage />} />
+            <Route path="/confidentialite" element={<LegalPage />} />
 
             {/* Protected */}
             <Route element={<ProtectedRoutes />}>

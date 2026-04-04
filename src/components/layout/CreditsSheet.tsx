@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { X, Sparkles, Zap, Crown, Flame, Loader2, Check } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { useCheckout, CREDIT_PACKS } from '@/hooks/useCheckout'
@@ -152,6 +153,13 @@ export function CreditsSheet({ open, onClose, remaining, totalGenerated, payment
 
           {/* Trust line */}
           <p className="text-[10px] text-center text-[#2C2622]/25 pt-1">{t('profile.stripe.trust')}</p>
+
+          {/* Legal links */}
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <Link to="/cgu" onClick={onClose} className="text-[10px] text-[#2C2622]/25 hover:text-[#C9A961] transition-colors">CGU</Link>
+            <span className="text-[#2C2622]/15">·</span>
+            <Link to="/confidentialite" onClick={onClose} className="text-[10px] text-[#2C2622]/25 hover:text-[#C9A961] transition-colors">Confidentialité</Link>
+          </div>
         </div>
 
         {/* Safe area for iOS */}
