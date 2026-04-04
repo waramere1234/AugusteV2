@@ -11,13 +11,20 @@ export interface GenerationJob {
   error?: string
 }
 
+export type GenerationModel = 'openai' | 'google'
+
+const EDGE_FUNCTIONS: Record<GenerationModel, string> = {
+  openai: 'generate-dish-photo',
+  google: 'generate-dish-photo-google',
+}
+
 interface UseGenerationReturn {
   jobs: GenerationJob[]
   generating: boolean
   progress: { done: number; total: number }
   insufficientCredits: boolean
   clearInsufficientCredits: () => void
-  generateBatch: (items: MenuItem[], restaurant: Restaurant) => Promise<void>
+  generateBatch: (items: MenuItem[], restaurant: Restaurant, model?: GenerationModel) => Promise<void>
   regenerateOne: (item: MenuItem, restaurant: Restaurant, instructions?: string) => Promise<string | null>
   enhanceOne: (item: MenuItem, restaurant: Restaurant, sourceImageUrl: string) => Promise<string | null>
 }
@@ -105,7 +112,7 @@ export function useGeneration(): UseGenerationReturn {
   const progress = { done: doneCount, total: jobs.length }
 
   // Generate photos for a batch of items — handles both fresh generation and enhance (user photos)
-  const generateBatch = useCallback(async (items: MenuItem[], restaurant: Restaurant) => {
+  const generateBatch = useCallback(async (items: MenuItem[], restaurant: Restaurant, model: GenerationModel = 'openai') => {
     if (items.length === 0) return
 
     const initialJobs: GenerationJob[] = items.map((item) => ({
@@ -133,7 +140,8 @@ export function useGeneration(): UseGenerationReturn {
         )
       })
 
-      const { data, error } = await supabase.functions.invoke('generate-dish-photo', {
+      const fnName = EDGE_FUNCTIONS[model]
+      const { data, error } = await supabase.functions.invoke(fnName, {
         body: {
           dishes,
           restaurantType: restaurant.cuisine_profile_id,

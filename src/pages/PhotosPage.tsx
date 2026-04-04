@@ -8,7 +8,7 @@ import { useI18n } from '@/lib/i18n'
 import { useRestaurant } from '@/hooks/useRestaurant'
 import { useMenus } from '@/hooks/useMenus'
 import { useCredits } from '@/hooks/useCredits'
-import { useGeneration } from '@/hooks/useGeneration'
+import { useGeneration, type GenerationModel } from '@/hooks/useGeneration'
 import { PhotoCard } from '@/components/photos/PhotoCard'
 import { ShimmerCard } from '@/components/photos/ShimmerCard'
 import { FullscreenViewer } from '@/components/photos/FullscreenViewer'
@@ -26,6 +26,7 @@ export function PhotosPage() {
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null)
   const [regenerating, setRegenerating] = useState<string | null>(null)
   const [hasAutoStarted, setHasAutoStarted] = useState(false)
+  const [model, setModel] = useState<GenerationModel>('openai')
   const hasCredits = (credits?.remaining ?? 0) > 0
 
   // Profile completeness check for optimal generation
@@ -63,7 +64,7 @@ export function PhotosPage() {
       (i) => selectedIds.includes(i.id) && (!i.image_url || i.image_source === 'user'),
     )
     if (toProcess.length > 0) {
-      generateBatch(toProcess, restaurant)
+      generateBatch(toProcess, restaurant, model)
     }
   }, [selectedIds, restaurant, menuLoading, items, hasAutoStarted, hasCredits, generateBatch])
 
@@ -172,11 +173,25 @@ export function PhotosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold font-serif text-[#2C2622]">{t('photos.title')}</h1>
-        {withPhotos.length > 0 && (
-          <span className="text-xs font-medium text-[#2C2622]/30 bg-[#F0EDE8] px-2.5 py-1 rounded-full">
-            {withPhotos.length} / {items.length}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Model toggle */}
+          <button
+            onClick={() => setModel(m => m === 'openai' ? 'google' : 'openai')}
+            disabled={generating}
+            className={`text-[10px] font-semibold px-2.5 py-1 rounded-full transition-all disabled:opacity-50 ${
+              model === 'google'
+                ? 'bg-blue-500 text-white'
+                : 'bg-[#F0EDE8] text-[#2C2622]/40'
+            }`}
+          >
+            {model === 'google' ? '🔵 Google' : 'OpenAI'}
+          </button>
+          {withPhotos.length > 0 && (
+            <span className="text-xs font-medium text-[#2C2622]/30 bg-[#F0EDE8] px-2.5 py-1 rounded-full">
+              {withPhotos.length} / {items.length}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Generation in progress */}
@@ -321,7 +336,7 @@ export function PhotosPage() {
         <button
           onClick={() => {
             const userItems = items.filter((i) => i.image_source === 'user' && i.image_url)
-            if (userItems.length > 0) generateBatch(userItems, restaurant)
+            if (userItems.length > 0) generateBatch(userItems, restaurant, model)
           }}
           disabled={!!regenerating || !hasCredits || !profileReady}
           className="w-full py-4 bg-gradient-to-r from-[#C9A961] to-[#D4B96E] text-white rounded-2xl text-sm font-semibold
@@ -347,7 +362,7 @@ export function PhotosPage() {
           </div>
           {restaurant && hasCredits && profileReady && (
             <button
-              onClick={() => generateBatch(withoutPhotos, restaurant)}
+              onClick={() => generateBatch(withoutPhotos, restaurant, model)}
               disabled={generating}
               className="shrink-0 px-4 py-2.5 bg-[#C9A961] text-white text-xs font-semibold rounded-xl active:scale-95 transition-all disabled:opacity-50"
             >
