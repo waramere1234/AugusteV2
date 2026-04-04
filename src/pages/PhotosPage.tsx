@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Camera, Loader2, Check,
-  AlertCircle, Sparkles, ImageOff, CreditCard,
+  AlertCircle, Sparkles, ImageOff, CreditCard, AlertTriangle,
 } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { useRestaurant } from '@/hooks/useRestaurant'
@@ -17,6 +17,7 @@ import type { MenuItem } from '@/types'
 export function PhotosPage() {
   const { t } = useI18n()
   const location = useLocation()
+  const navigate = useNavigate()
   const { restaurant } = useRestaurant()
   const { items, loading: menuLoading, reload } = useMenus(restaurant?.id ?? null)
   const { credits, reload: reloadCredits } = useCredits()
@@ -26,6 +27,12 @@ export function PhotosPage() {
   const [regenerating, setRegenerating] = useState<string | null>(null)
   const [hasAutoStarted, setHasAutoStarted] = useState(false)
   const hasCredits = (credits?.remaining ?? 0) > 0
+
+  // Profile completeness check for optimal generation
+  const missingProfile: string[] = []
+  if (!restaurant?.cuisine_profile_id) missingProfile.push(t('photos.missing.cuisine'))
+  if (!restaurant?.style_photo_url) missingProfile.push(t('photos.missing.stylephoto'))
+  const profileReady = missingProfile.length === 0
 
   // When Edge Function returns 402 (insufficient credits), open credits sheet
   useEffect(() => {
@@ -49,7 +56,7 @@ export function PhotosPage() {
   // Auto-start generation if we arrived from MenuPage with selectedIds
   const selectedIds = (location.state as { selectedIds?: string[] } | null)?.selectedIds
   useEffect(() => {
-    if (hasAutoStarted || !selectedIds?.length || !restaurant || menuLoading || items.length === 0 || !hasCredits) return
+    if (hasAutoStarted || !selectedIds?.length || !restaurant || menuLoading || items.length === 0 || !hasCredits || !profileReady) return
     setHasAutoStarted(true)
 
     const toProcess = items.filter(
@@ -256,6 +263,27 @@ export function PhotosPage() {
         </div>
       )}
 
+      {/* Incomplete profile banner */}
+      {!profileReady && !generating && items.length > 0 && (
+        <div className="bg-[#D4895C]/10 border border-[#D4895C]/20 rounded-2xl p-4 flex items-center gap-3 animate-fade-in">
+          <div className="w-10 h-10 rounded-xl bg-[#D4895C]/10 flex items-center justify-center shrink-0">
+            <AlertTriangle size={18} className="text-[#D4895C]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-[#2C2622]">{t('photos.profileIncomplete')}</p>
+            <p className="text-xs text-[#2C2622]/50 mt-0.5">
+              {missingProfile.join(' · ')}
+            </p>
+          </div>
+          <button
+            onClick={() => navigate('/profil')}
+            className="shrink-0 px-4 py-2.5 bg-[#C9A961] text-white text-xs font-semibold rounded-xl active:scale-95 transition-all"
+          >
+            {t('photos.completeProfile')}
+          </button>
+        </div>
+      )}
+
       {/* Shimmer placeholders while generating */}
       {generating && progress.done === 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
@@ -295,7 +323,7 @@ export function PhotosPage() {
             const userItems = items.filter((i) => i.image_source === 'user' && i.image_url)
             if (userItems.length > 0) generateBatch(userItems, restaurant)
           }}
-          disabled={!!regenerating || !hasCredits}
+          disabled={!!regenerating || !hasCredits || !profileReady}
           className="w-full py-4 bg-gradient-to-r from-[#C9A961] to-[#D4B96E] text-white rounded-2xl text-sm font-semibold
             shadow-[0_4px_16px_rgba(201,169,97,0.3)] active:scale-[0.98] transition-all
             disabled:opacity-50 flex items-center justify-center gap-2"
@@ -317,7 +345,7 @@ export function PhotosPage() {
             </p>
             <p className="text-xs text-[#2C2622]/40 mt-0.5">{t('photos.pendingCount.desc')}</p>
           </div>
-          {restaurant && hasCredits && (
+          {restaurant && hasCredits && profileReady && (
             <button
               onClick={() => generateBatch(withoutPhotos, restaurant)}
               disabled={generating}
