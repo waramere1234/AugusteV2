@@ -1,11 +1,9 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Camera, Loader2, LogOut, Sparkles, X, Check, Zap, Crown, Flame, Eye, Upload } from 'lucide-react'
+import { useState, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Camera, Loader2, LogOut, X, Check, Eye, Upload } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { useAuth } from '@/lib/auth'
 import { useRestaurant } from '@/hooks/useRestaurant'
-import { useCredits } from '@/hooks/useCredits'
-import { useCheckout, CREDIT_PACKS } from '@/hooks/useCheckout'
 import { GoogleBusinessCard } from '@/components/profile/GoogleBusinessCard'
 import { CuisineSelector } from '@/components/profile/CuisineSelector'
 
@@ -17,29 +15,7 @@ export function ProfilePage() {
     restaurant, loading, saving, saved, analyzingStyle, error, clearError,
     updateField, searchGoogle, applyGoogleData, uploadPhoto, selectStylePhoto,
   } = useRestaurant()
-  const { credits, reload: reloadCredits } = useCredits()
-  const { checkout, loading: checkoutLoading, error: checkoutError, clearError: clearCheckoutError } = useCheckout()
-  const [searchParams, setSearchParams] = useSearchParams()
-
   const [uploading, setUploading] = useState(false)
-  const [paymentSuccess, setPaymentSuccess] = useState(false)
-
-  // Handle Stripe return
-  useEffect(() => {
-    const payment = searchParams.get('payment')
-    if (payment === 'success') {
-      setPaymentSuccess(true)
-      reloadCredits()
-      // Clean URL
-      searchParams.delete('payment')
-      searchParams.delete('pack')
-      setSearchParams(searchParams, { replace: true })
-      setTimeout(() => setPaymentSuccess(false), 5000)
-    } else if (payment === 'cancelled') {
-      searchParams.delete('payment')
-      setSearchParams(searchParams, { replace: true })
-    }
-  }, [searchParams, setSearchParams, reloadCredits])
   const [applyingGoogle, setApplyingGoogle] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -384,117 +360,6 @@ export function ProfilePage() {
           <p className="text-xs text-[#C9A961] mt-0.5 font-medium">+ {t('profile.addMenu')}</p>
         </div>
       </button>
-
-      {/* ── Credits + Packs ──────────────────────────────────────────────────── */}
-      <section className="rounded-2xl overflow-hidden shadow-sm border border-gray-100">
-        {/* Credits header — gradient banner */}
-        <div className="bg-gradient-to-r from-[#2C2622] to-[#3D352F] px-5 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#C9A961]/20 flex items-center justify-center">
-                <Sparkles size={18} className="text-[#C9A961]" />
-              </div>
-              <div>
-                <p className="text-xs font-medium text-white/50 uppercase tracking-wider">{t('profile.credits')}</p>
-                <div className="flex items-baseline gap-1.5">
-                  <span className={`text-2xl font-bold tabular-nums ${
-                    credits?.remaining === 0 ? 'text-[#D4895C]' : 'text-[#C9A961]'
-                  }`}>
-                    {credits?.remaining ?? '—'}
-                  </span>
-                  {credits?.totalGenerated ? (
-                    <span className="text-[10px] text-white/30">{credits.totalGenerated} {t('profile.generated')}</span>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-            <p className="text-[10px] text-white/30 max-w-[120px] text-right leading-tight">{t('profile.credits.desc')}</p>
-          </div>
-        </div>
-
-        {/* Body — packs */}
-        <div className="bg-white p-4 space-y-3">
-          {/* Payment success banner */}
-          {paymentSuccess && (
-            <div className="bg-[#7C9A6B]/10 border border-[#7C9A6B]/20 rounded-xl px-4 py-3 flex items-center gap-2 animate-fade-in">
-              <Check size={16} className="text-[#7C9A6B] shrink-0" />
-              <p className="text-sm font-medium text-[#7C9A6B]">{t('profile.paymentSuccess')}</p>
-            </div>
-          )}
-
-          {/* Checkout error */}
-          {checkoutError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
-              <span className="flex-1">{checkoutError}</span>
-              <button onClick={clearCheckoutError} className="p-1 rounded text-red-400 active:bg-red-100">
-                <X size={14} />
-              </button>
-            </div>
-          )}
-
-          <p className="text-xs font-semibold text-[#2C2622]/70 uppercase tracking-wider">{t('profile.choosePack')}</p>
-
-          {/* Pack cards — stacked on mobile for readability */}
-          <div className="space-y-2.5">
-            {CREDIT_PACKS.map((pack) => {
-              const icons = { starter: Zap, popular: Crown, complete: Flame }
-              const PackIcon = icons[pack.id]
-              const isLoading = checkoutLoading === pack.id
-
-              return (
-                <button
-                  key={pack.id}
-                  onClick={() => checkout(pack.id)}
-                  disabled={!!checkoutLoading}
-                  className={`relative w-full flex items-center gap-3.5 p-4 rounded-xl border-2 text-left transition-all active:scale-[0.98] ${
-                    pack.popular
-                      ? 'border-[#C9A961] bg-gradient-to-r from-[#C9A961]/[0.06] to-[#C9A961]/[0.02] shadow-[0_2px_12px_rgba(201,169,97,0.12)]'
-                      : 'border-gray-100 hover:border-gray-200 hover:shadow-sm'
-                  } ${checkoutLoading && !isLoading ? 'opacity-50' : ''}`}
-                >
-                  {/* Popular badge */}
-                  {pack.popular && (
-                    <span className="absolute -top-2.5 left-4 bg-[#C9A961] text-white text-[9px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
-                      {t('profile.popular')}
-                    </span>
-                  )}
-
-                  {/* Icon */}
-                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
-                    pack.popular ? 'bg-[#C9A961]/15' : 'bg-[#F0EDE8]'
-                  }`}>
-                    <PackIcon size={20} className={pack.popular ? 'text-[#C9A961]' : 'text-[#2C2622]/30'} />
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-sm font-bold text-[#2C2622]">{t(`profile.pack.${pack.id}`)}</span>
-                      <span className="text-[10px] text-[#2C2622]/30">{pack.pricePerCredit}/{t('profile.perCredit')}</span>
-                    </div>
-                    <p className="text-xs text-[#2C2622]/40 mt-0.5">{t(`profile.pack.${pack.id}.desc`)}</p>
-                  </div>
-
-                  {/* Price + credits */}
-                  <div className="text-right shrink-0">
-                    {isLoading ? (
-                      <Loader2 size={20} className="animate-spin text-[#C9A961] mx-auto" />
-                    ) : (
-                      <>
-                        <p className={`text-lg font-bold tabular-nums ${pack.popular ? 'text-[#C9A961]' : 'text-[#2C2622]'}`}>{pack.price}</p>
-                        <p className="text-[10px] text-[#2C2622]/30 font-medium">{pack.credits} {t('profile.credits.unit')}</p>
-                      </>
-                    )}
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Trust line */}
-          <p className="text-[10px] text-center text-[#2C2622]/25 pt-1">{t('profile.stripe.trust')}</p>
-        </div>
-      </section>
 
       {/* ── Logout ──────────────────────────────────────────────────────────── */}
       <button

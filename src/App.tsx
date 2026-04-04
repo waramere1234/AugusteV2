@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/lib/auth'
 import { I18nProvider } from '@/lib/i18n'
+import { ErrorBoundary } from '@/components/layout/ErrorBoundary'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { LandingPage } from '@/pages/LandingPage'
 import { LoginPage } from '@/pages/LoginPage'
@@ -57,6 +58,7 @@ function PublicHome() {
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <I18nProvider>
         <AuthProvider>
@@ -80,5 +82,6 @@ export default function App() {
         </AuthProvider>
       </I18nProvider>
     </BrowserRouter>
+    </ErrorBoundary>
   )
 }

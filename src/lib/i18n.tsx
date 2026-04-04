@@ -257,6 +257,11 @@ const translations = {
   'landing.footerRights': { fr: 'Tous droits réservés.', en: 'All rights reserved.' },
   'landing.alreadyAccount': { fr: 'Déjà un compte ?', en: 'Already have an account?' },
   'landing.noAccount': { fr: "Pas encore de compte ?", en: 'No account yet?' },
+
+  // ── Error Boundary ────────────────────────────────────────────────────────
+  'error.boundary.title': { fr: 'Oups, quelque chose a planté', en: 'Oops, something went wrong' },
+  'error.boundary.desc': { fr: 'Pas de panique — rechargez la page pour reprendre.', en: 'Don\'t worry — reload the page to continue.' },
+  'error.boundary.reload': { fr: 'Recharger la page', en: 'Reload page' },
 } as const
 
 type TranslationKey = keyof typeof translations

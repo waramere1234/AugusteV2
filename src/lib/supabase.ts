@@ -21,6 +21,8 @@ export async function ensureSession() {
   const { data: { session: refreshedSession }, error: refreshError } =
     await supabase.auth.refreshSession()
   if (refreshError || !refreshedSession) {
+    // Force sign-out to trigger redirect to login
+    await supabase.auth.signOut().catch(() => {})
     throw new Error('Session expired — please log in again')
   }
 }

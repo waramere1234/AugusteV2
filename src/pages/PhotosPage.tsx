@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import {
   Camera, Loader2, Check,
   AlertCircle, Sparkles, ImageOff, CreditCard,
@@ -17,16 +17,24 @@ import type { MenuItem } from '@/types'
 export function PhotosPage() {
   const { t } = useI18n()
   const location = useLocation()
-  const navigate = useNavigate()
   const { restaurant } = useRestaurant()
   const { items, loading: menuLoading, reload } = useMenus(restaurant?.id ?? null)
   const { credits, reload: reloadCredits } = useCredits()
-  const { jobs, generating, progress, generateBatch, regenerateOne, enhanceOne } = useGeneration()
+  const { jobs, generating, progress, insufficientCredits, clearInsufficientCredits, generateBatch, regenerateOne, enhanceOne } = useGeneration()
 
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null)
   const [regenerating, setRegenerating] = useState<string | null>(null)
   const [hasAutoStarted, setHasAutoStarted] = useState(false)
   const hasCredits = (credits?.remaining ?? 0) > 0
+
+  // When Edge Function returns 402 (insufficient credits), open credits sheet
+  useEffect(() => {
+    if (insufficientCredits) {
+      reloadCredits()
+      window.dispatchEvent(new CustomEvent('open-credits-sheet'))
+      clearInsufficientCredits()
+    }
+  }, [insufficientCredits, reloadCredits, clearInsufficientCredits])
 
   // Reload items + credits from DB when generation finishes
   const prevGenerating = useRef(false)
@@ -240,7 +248,7 @@ export function PhotosPage() {
             <p className="text-xs text-[#2C2622]/50 mt-0.5">{t('photos.noCredits.desc')}</p>
           </div>
           <button
-            onClick={() => navigate('/profil')}
+            onClick={() => window.dispatchEvent(new CustomEvent('open-credits-sheet'))}
             className="shrink-0 px-4 py-2.5 bg-[#C9A961] text-white text-xs font-semibold rounded-xl active:scale-95 transition-all"
           >
             {t('photos.buyCredits')}

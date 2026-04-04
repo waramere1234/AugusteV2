@@ -15,6 +15,8 @@ interface UseGenerationReturn {
   jobs: GenerationJob[]
   generating: boolean
   progress: { done: number; total: number }
+  insufficientCredits: boolean
+  clearInsufficientCredits: () => void
   generateBatch: (items: MenuItem[], restaurant: Restaurant) => Promise<void>
   regenerateOne: (item: MenuItem, restaurant: Restaurant, instructions?: string) => Promise<string | null>
   enhanceOne: (item: MenuItem, restaurant: Restaurant, sourceImageUrl: string) => Promise<string | null>
@@ -97,6 +99,7 @@ async function persistImage(itemId: string, dataUri: string, userId: string, ima
 export function useGeneration(): UseGenerationReturn {
   const [jobs, setJobs] = useState<GenerationJob[]>([])
   const [generating, setGenerating] = useState(false)
+  const [insufficientCredits, setInsufficientCredits] = useState(false)
 
   const doneCount = jobs.filter((j) => j.status === 'done').length
   const progress = { done: doneCount, total: jobs.length }
@@ -140,13 +143,16 @@ export function useGeneration(): UseGenerationReturn {
       if (error) {
         // Extract real error message from Edge Function response
         let msg = error.message
+        let status: number | undefined
         try {
           const ctx = error.context as Response | undefined
+          status = ctx?.status
           if (ctx?.json) {
             const body = await ctx.json()
             msg = body?.error || body?.message || msg
           }
         } catch { /* not parseable */ }
+        if (status === 402) setInsufficientCredits(true)
         if (import.meta.env.DEV) console.error('generate-dish-photo error:', msg)
         throw new Error(msg)
       }
@@ -233,7 +239,11 @@ export function useGeneration(): UseGenerationReturn {
         },
       })
 
-      if (error) throw new Error(error.message)
+      if (error) {
+        const ctx = error.context as Response | undefined
+        if (ctx?.status === 402) setInsufficientCredits(true)
+        throw new Error(error.message)
+      }
       if (!data?.success) return null
 
       const images: { dishId: string; imageUrl: string }[] = data.images ?? []
@@ -268,7 +278,11 @@ export function useGeneration(): UseGenerationReturn {
       },
     })
 
-    if (error) throw new Error(error.message)
+    if (error) {
+      const ctx = error.context as Response | undefined
+      if (ctx?.status === 402) setInsufficientCredits(true)
+      throw new Error(error.message)
+    }
     if (!data?.success) throw new Error(data?.error || 'Enhance échoué')
 
     const images: { dishId: string; imageUrl: string }[] = data.images ?? []
@@ -280,5 +294,9 @@ export function useGeneration(): UseGenerationReturn {
       : rawUrl
   }, [])
 
-  return { jobs, generating, progress, generateBatch, regenerateOne, enhanceOne }
+  return {
+    jobs, generating, progress,
+    insufficientCredits, clearInsufficientCredits: () => setInsufficientCredits(false),
+    generateBatch, regenerateOne, enhanceOne,
+  }
 }
