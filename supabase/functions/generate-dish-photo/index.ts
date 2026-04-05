@@ -1262,6 +1262,86 @@ function resolveApiParams(
 }
 
 // ============================================================================
+// QUALITY GATE — GPT-4o-mini vision verification (controlled by ENABLE_VERIFY)
+// ============================================================================
+
+const ENABLE_VERIFY = Deno.env.get('ENABLE_VERIFY') === 'true';
+
+interface VerifyResult {
+  pass: boolean;
+  reason: string;
+}
+
+async function verifyDishPhoto(
+  imageBase64: string,
+  dishName: string,
+  dishDescription: string | undefined,
+  apiKey: string,
+): Promise<VerifyResult> {
+  // Extract raw base64 data from data URI
+  let rawBase64 = imageBase64;
+  let mimeType = 'image/webp';
+  if (rawBase64.startsWith('data:')) {
+    const commaIdx = rawBase64.indexOf(',');
+    const header = rawBase64.substring(0, commaIdx);
+    mimeType = header.match(/:(.*?);/)?.[1] || mimeType;
+    rawBase64 = rawBase64.substring(commaIdx + 1);
+  }
+
+  const descPart = dishDescription ? ` described as: "${dishDescription}"` : '';
+  const userPrompt = `Does this food photo look like "${dishName}"${descPart}? Answer ONLY with JSON: {"pass": true/false, "reason": "brief reason"}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: { url: `data:${mimeType};base64,${rawBase64}`, detail: 'low' },
+              },
+              { type: 'text', text: userPrompt },
+            ],
+          },
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: 100,
+        temperature: 0,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      console.warn(`⚠️ Verify API error: ${response.status}`);
+      return { pass: true, reason: 'verify_api_error' };
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return { pass: true, reason: 'no_content' };
+
+    const parsed = JSON.parse(content) as VerifyResult;
+    return { pass: !!parsed.pass, reason: parsed.reason || '' };
+  } catch (err) {
+    clearTimeout(timeout);
+    console.warn(`⚠️ Verify failed (fail-open): ${err}`);
+    return { pass: true, reason: 'verify_error' };
+  }
+}
+
+// ============================================================================
 // RATE LIMIT CHECK
 // ============================================================================
 
@@ -1509,6 +1589,57 @@ Deno.serve(async (req) => {
             prompt, OPENAI_API_KEY!, apiParams.size,
             apiParams.quality, apiParams.output_format,
           );
+        }
+
+        // ── Quality Gate — verify image matches the dish (if enabled) ──
+        if (ENABLE_VERIFY && !dish.isEnhance && imageUrl) {
+          const verifyResult = await verifyDishPhoto(imageUrl, dish.name, dish.description, OPENAI_API_KEY!);
+          console.log(`🔍 Verify ${dish.name}: ${verifyResult.pass ? 'PASS' : 'FAIL'} — ${verifyResult.reason}`);
+
+          if (!verifyResult.pass) {
+            // Retry once with the critique injected
+            console.log(`🔄 Retrying ${dish.name} with critique: ${verifyResult.reason}`);
+            const retryInstructions = [
+              dish.userInstructions || '',
+              `IMPORTANT CORRECTION: The previous image was rejected because: ${verifyResult.reason}. Fix this issue.`,
+            ].filter(Boolean).join(' ');
+
+            const retryPrompt = buildPromptForDish({
+              name: dish.name,
+              category: dish.category,
+              description: dish.description,
+              style: dish.style,
+              restaurantStyleDescription: dish.restaurantStyleDescription,
+              backgroundDescription: dish.backgroundDescription,
+              tailles: dish.tailles,
+              cuisineProfile: dish.cuisineProfile,
+              cuisineTypes: dish.cuisineTypes,
+              restaurantType,
+              gastroLevel,
+              isEnhance: false,
+              userInstructions: retryInstructions,
+              hasRestaurantPhoto: hasRestaurant,
+              hasDishReference: hasDishRef,
+              hasAmbiancePhoto: hasAmbiance,
+              hasSiblingImage: !!siblingBase64,
+              styleTemplate: dish.styleTemplate,
+            });
+
+            if (hasStyleImages) {
+              imageUrl = await generateWithStyleImages(
+                retryPrompt, OPENAI_API_KEY!, finalDishReferenceBase64,
+                finalRestaurantPhotoBase64, dish.ambiancePhotoBase64 || '',
+                apiParams.quality, siblingBase64, apiParams.size,
+                apiParams.input_fidelity, apiParams.output_format, false,
+              );
+            } else {
+              imageUrl = await generateWithTextOnly(
+                retryPrompt, OPENAI_API_KEY!, apiParams.size,
+                apiParams.quality, apiParams.output_format,
+              );
+            }
+            console.log(`🔄 Retry done: ${dish.name}`);
+          }
         }
 
         console.log(`✅ Done: ${dish.name}`);

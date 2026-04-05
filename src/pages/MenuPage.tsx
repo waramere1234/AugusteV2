@@ -24,7 +24,6 @@ export function MenuPage() {
   const [dismissedError, setDismissedError] = useState<string | null>(null)
   const [showImport, setShowImport] = useState(false)
   const [enhancingId, setEnhancingId] = useState<string | null>(null)
-
   // ── Selection ──────────────────────────────────────────────────────────────
   const toggleSelect = useCallback((itemId: string) => {
     setSelectedIds((prev) => {
@@ -177,13 +176,15 @@ export function MenuPage() {
             {items.length} {t('menu.items')} &middot; {categories.length} {t('menu.categories')}
           </p>
         </div>
-        <button
-          onClick={() => setShowImport(true)}
-          className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-[#C9A961] bg-[#C9A961]/10 hover:bg-[#C9A961]/20 active:scale-[0.97] rounded-xl transition-all"
-        >
-          <RefreshCw size={16} />
-          {t('menu.reimport')}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-[#C9A961] bg-[#C9A961]/10 hover:bg-[#C9A961]/20 active:scale-[0.97] rounded-xl transition-all"
+          >
+            <RefreshCw size={16} />
+            {t('menu.reimport')}
+          </button>
+        </div>
       </div>
 
       {/* Error */}

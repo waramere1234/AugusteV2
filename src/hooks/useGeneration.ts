@@ -25,7 +25,7 @@ interface UseGenerationReturn {
   insufficientCredits: boolean
   clearInsufficientCredits: () => void
   generateBatch: (items: MenuItem[], restaurant: Restaurant, model?: GenerationModel) => Promise<void>
-  regenerateOne: (item: MenuItem, restaurant: Restaurant, instructions?: string) => Promise<string | null>
+  regenerateOne: (item: MenuItem, restaurant: Restaurant, instructions?: string, model?: GenerationModel) => Promise<string | null>
   enhanceOne: (item: MenuItem, restaurant: Restaurant, sourceImageUrl: string) => Promise<string | null>
 }
 
@@ -67,7 +67,7 @@ async function getUserId(): Promise<string> {
  * Storage RLS requires path: {userId}/filename — so we prefix with the authenticated user's ID.
  * Returns the public Storage URL.
  */
-async function persistImage(itemId: string, dataUri: string, userId: string, imageSource: 'generated' | 'enhanced' = 'generated'): Promise<string> {
+async function persistImage(itemId: string, dataUri: string, userId: string, imageSource: 'generated' | 'enhanced' = 'generated', provider?: GenerationModel): Promise<string> {
   // Convert data URI to Blob
   const res = await fetch(dataUri)
   const blob = await res.blob()
@@ -97,7 +97,7 @@ async function persistImage(itemId: string, dataUri: string, userId: string, ima
   // Insert into generated_images
   const { error: insertError } = await supabase
     .from('generated_images')
-    .insert({ menu_item_id: itemId, image_url: publicUrl })
+    .insert({ menu_item_id: itemId, image_url: publicUrl, generation_provider: provider ?? null })
   if (insertError && import.meta.env.DEV) console.error('generated_images insert error:', insertError.message)
 
   return publicUrl
@@ -187,8 +187,10 @@ export function useGeneration(): UseGenerationReturn {
         try {
           const job = initialJobs.find((j) => j.itemId === img.dishId)
           const source = job?.type === 'enhance' ? 'enhanced' as const : 'generated' as const
+          // Enhance always uses OpenAI regardless of toggle
+          const provider = source === 'enhanced' ? 'openai' as const : model
           const storageUrl = img.imageUrl.startsWith('data:')
-            ? await persistImage(img.dishId, img.imageUrl, userId, source)
+            ? await persistImage(img.dishId, img.imageUrl, userId, source, provider)
             : img.imageUrl
 
           setJobs((prev) =>
@@ -235,12 +237,14 @@ export function useGeneration(): UseGenerationReturn {
     item: MenuItem,
     restaurant: Restaurant,
     instructions?: string,
+    model: GenerationModel = 'openai',
   ): Promise<string | null> => {
     try {
       await ensureSession()
       const userId = await getUserId()
 
-      const { data, error } = await supabase.functions.invoke('generate-dish-photo', {
+      const fnName = EDGE_FUNCTIONS[model]
+      const { data, error } = await supabase.functions.invoke(fnName, {
         body: {
           dishes: [buildDish(item, restaurant, { instructions })],
           restaurantType: restaurant.cuisine_profile_id,
@@ -260,7 +264,7 @@ export function useGeneration(): UseGenerationReturn {
 
       // Persist: upload to Storage + update DB
       return rawUrl.startsWith('data:')
-        ? await persistImage(item.id, rawUrl, userId)
+        ? await persistImage(item.id, rawUrl, userId, 'generated', model)
         : rawUrl
     } catch {
       return null
@@ -298,7 +302,7 @@ export function useGeneration(): UseGenerationReturn {
     if (!rawUrl) throw new Error('Pas d\'image retournée')
 
     return rawUrl.startsWith('data:')
-      ? await persistImage(item.id, rawUrl, userId, 'enhanced')
+      ? await persistImage(item.id, rawUrl, userId, 'enhanced', 'openai')
       : rawUrl
   }, [])
 

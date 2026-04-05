@@ -3,6 +3,7 @@ import { Outlet, useSearchParams } from 'react-router-dom'
 import { BottomNav } from './BottomNav'
 import { Sidebar } from './Sidebar'
 import { useCredits } from '@/hooks/useCredits'
+import { GenerationProvider } from '@/lib/generation'
 
 export function AppLayout() {
   const { credits, reload: reloadCredits } = useCredits()
@@ -35,6 +36,7 @@ export function AppLayout() {
   }, [searchParams, setSearchParams, reloadCredits])
 
   return (
+    <GenerationProvider>
     <div className="min-h-screen bg-[#FAF8F5]">
       {/* Desktop sidebar */}
       <Sidebar
@@ -61,5 +63,6 @@ export function AppLayout() {
         paymentSuccess={paymentSuccess}
       />
     </div>
+    </GenerationProvider>
   )
 }

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase, ensureSession } from '@/lib/supabase'
 import { fileToBase64, delay, guessMimeType, extractEdgeFunctionError } from '@/lib/menuHelpers'
 import { getCuisineProfile } from '@/constants/cuisineProfiles'
+import { canonicalizeDishName } from '@/lib/normalize'
 import type { MenuItem } from '@/types'
 
 interface MenuRow {
@@ -145,13 +146,9 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
 
     reload()
 
-    // Auto-enrich descriptions for items without one
+    // Auto-enrich: always enrich after extraction (sparse descriptions benefit too)
     if (cuisineProfileId) {
-      const needsEnrich = aiItems.filter((i) => !((i.description as string) ?? '').trim())
-      if (needsEnrich.length > 0) {
-        // Fire-and-forget — don't block the extraction flow
-        setTimeout(() => enrichDescriptions(cuisineProfileId), 500)
-      }
+      setTimeout(() => enrichDescriptions(cuisineProfileId), 500)
     }
   }
 
@@ -230,8 +227,12 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
 
   // ── Enrich descriptions (template match + AI fallback) ─────────────────────
   const enrichDescriptions = useCallback(async (cuisineProfileId: string) => {
-    const itemsWithoutDesc = items.filter((i) => !i.description?.trim())
-    if (itemsWithoutDesc.length === 0) return
+    // Enrich items with empty OR sparse descriptions (< 15 words)
+    const itemsToEnrich = items.filter((i) => {
+      if (!i.description?.trim()) return true
+      return i.description.trim().split(/\s+/).length < 15
+    })
+    if (itemsToEnrich.length === 0) return
 
     setEnriching(true)
     try {
@@ -248,7 +249,12 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
 
       const { data, error: fnError } = await supabase.functions.invoke('enrich-descriptions', {
         body: {
-          items: itemsWithoutDesc.map((i) => ({ id: i.id, name: i.nom, category: i.categorie })),
+          items: itemsToEnrich.map((i) => ({
+            id: i.id,
+            name: i.nom,
+            category: i.categorie,
+            description: i.description || '',
+          })),
           cuisineProfileId,
           cuisineContext,
         },
@@ -259,16 +265,27 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
 
       const descriptions: { itemId: string; description: string }[] = data.descriptions ?? []
 
-      // Batch update DB + local state
+      // Batch update DB + local state — save original_description before overwriting
       for (const desc of descriptions) {
+        const item = items.find((i) => i.id === desc.itemId)
+        const update: Record<string, string> = { description: desc.description }
+        // Only save original if not already saved (first enrichment)
+        if (item && !item.original_description) {
+          update.original_description = item.description || ''
+        }
         await supabase.from('menu_items')
-          .update({ description: desc.description })
+          .update(update)
           .eq('id', desc.itemId)
       }
 
       setItems((prev) => prev.map((item) => {
         const match = descriptions.find((d) => d.itemId === item.id)
-        return match ? { ...item, description: match.description } : item
+        if (!match) return item
+        return {
+          ...item,
+          description: match.description,
+          original_description: item.original_description ?? item.description ?? '',
+        }
       }))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur enrichissement')
@@ -287,7 +304,7 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
     if (updates.description) {
       const item = items.find((i) => i.id === itemId)
       if (item) {
-        const canonical = item.nom.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+        const canonical = canonicalizeDishName(item.nom)
         supabase.from('dish_templates').upsert({
           cuisine_profile_id: menu?.cuisine_profile ?? 'unknown',
           canonical_name: canonical,

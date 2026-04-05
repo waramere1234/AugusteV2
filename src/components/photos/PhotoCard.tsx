@@ -1,4 +1,4 @@
-import { Camera, Download, Loader2, Sparkles } from 'lucide-react'
+import { Camera, Download, Loader2, RefreshCw, Sparkles } from 'lucide-react'
 import type { MenuItem } from '@/types'
 
 export function PhotoCard({
@@ -7,12 +7,14 @@ export function PhotoCard({
   regenerating,
   onClick,
   onDownload,
+  onRegenerate,
 }: {
   item: MenuItem
   index: number
   regenerating: boolean
   onClick: () => void
   onDownload: () => void
+  onRegenerate?: () => void
 }) {
   return (
     <div
@@ -36,13 +38,25 @@ export function PhotoCard({
               <p className="text-white/60 text-xs mt-0.5">{item.prix}</p>
             )}
           </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDownload() }}
-            className="shrink-0 p-1.5 rounded-full bg-white/15 hover:bg-white/30 active:scale-90 transition-all"
-            aria-label="Download"
-          >
-            <Download size={14} className="text-white" />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onRegenerate && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onRegenerate() }}
+                disabled={regenerating}
+                className="p-1.5 rounded-full bg-white/15 hover:bg-[#C9A961]/80 active:scale-90 transition-all disabled:opacity-50"
+                aria-label="Regenerate"
+              >
+                <RefreshCw size={14} className="text-white" />
+              </button>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); onDownload() }}
+              className="p-1.5 rounded-full bg-white/15 hover:bg-white/30 active:scale-90 transition-all"
+              aria-label="Download"
+            >
+              <Download size={14} className="text-white" />
+            </button>
+          </div>
         </div>
       </div>
 

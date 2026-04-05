@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Camera, Loader2, Check,
-  AlertCircle, Sparkles, ImageOff, CreditCard, AlertTriangle,
+  AlertCircle, Sparkles, ImageOff, CreditCard, AlertTriangle, RefreshCw, X, Send,
 } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { useRestaurant } from '@/hooks/useRestaurant'
 import { useMenus } from '@/hooks/useMenus'
 import { useCredits } from '@/hooks/useCredits'
-import { useGeneration, type GenerationModel } from '@/hooks/useGeneration'
+import { useGenerationContext } from '@/lib/generation'
 import { PhotoCard } from '@/components/photos/PhotoCard'
 import { ShimmerCard } from '@/components/photos/ShimmerCard'
 import { FullscreenViewer } from '@/components/photos/FullscreenViewer'
@@ -21,12 +21,13 @@ export function PhotosPage() {
   const { restaurant } = useRestaurant()
   const { items, loading: menuLoading, reload } = useMenus(restaurant?.id ?? null)
   const { credits, reload: reloadCredits } = useCredits()
-  const { jobs, generating, progress, insufficientCredits, clearInsufficientCredits, generateBatch, regenerateOne, enhanceOne } = useGeneration()
+  const { jobs, generating, progress, insufficientCredits, clearInsufficientCredits, generateBatch, regenerateOne, enhanceOne } = useGenerationContext()
 
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null)
   const [regenerating, setRegenerating] = useState<string | null>(null)
   const [hasAutoStarted, setHasAutoStarted] = useState(false)
-  const [model, setModel] = useState<GenerationModel>('openai')
+  const [regenTarget, setRegenTarget] = useState<MenuItem | null>(null)
+  const [regenInstructions, setRegenInstructions] = useState('')
   const hasCredits = (credits?.remaining ?? 0) > 0
 
   // Profile completeness check for optimal generation
@@ -55,16 +56,18 @@ export function PhotosPage() {
   }, [generating, reload, reloadCredits])
 
   // Auto-start generation if we arrived from MenuPage with selectedIds
-  const selectedIds = (location.state as { selectedIds?: string[] } | null)?.selectedIds
+  const navState = location.state as { selectedIds?: string[] } | null
+  const selectedIds = navState?.selectedIds
+
   useEffect(() => {
     if (hasAutoStarted || !selectedIds?.length || !restaurant || menuLoading || items.length === 0 || !hasCredits || !profileReady) return
     setHasAutoStarted(true)
 
     const toProcess = items.filter(
-      (i) => selectedIds.includes(i.id) && (!i.image_url || i.image_source === 'user'),
+      (i) => selectedIds.includes(i.id),
     )
     if (toProcess.length > 0) {
-      generateBatch(toProcess, restaurant, model)
+      generateBatch(toProcess, restaurant)
     }
   }, [selectedIds, restaurant, menuLoading, items, hasAutoStarted, hasCredits, generateBatch])
 
@@ -106,14 +109,14 @@ export function PhotosPage() {
     return [...groups.values()].sort((a, b) => b.sortKey.localeCompare(a.sortKey))
   }, [withPhotos, t])
 
-  const handleRegenerate = useCallback(async (item: MenuItem) => {
+  const handleRegenerate = useCallback(async (item: MenuItem, instructions?: string) => {
     if (!restaurant) return
     setRegenerating(item.id)
     try {
       if (item.image_source === 'user' && item.image_url) {
         await enhanceOne(item, restaurant, item.image_url)
       } else {
-        await regenerateOne(item, restaurant)
+        await regenerateOne(item, restaurant, instructions || undefined)
       }
       reload()
     } catch {
@@ -174,18 +177,6 @@ export function PhotosPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold font-serif text-[#2C2622]">{t('photos.title')}</h1>
         <div className="flex items-center gap-2">
-          {/* Model toggle */}
-          <button
-            onClick={() => setModel(m => m === 'openai' ? 'google' : 'openai')}
-            disabled={generating}
-            className={`text-[10px] font-semibold px-2.5 py-1 rounded-full transition-all disabled:opacity-50 ${
-              model === 'google'
-                ? 'bg-blue-500 text-white'
-                : 'bg-[#F0EDE8] text-[#2C2622]/40'
-            }`}
-          >
-            {model === 'google' ? '🔵 Google' : 'OpenAI'}
-          </button>
           {withPhotos.length > 0 && (
             <span className="text-xs font-medium text-[#2C2622]/30 bg-[#F0EDE8] px-2.5 py-1 rounded-full">
               {withPhotos.length} / {items.length}
@@ -325,6 +316,7 @@ export function PhotosPage() {
                 regenerating={regenerating === item.id}
                 onClick={() => setFullscreenIndex(group.globalIndices[i])}
                 onDownload={() => handleDownload(item)}
+                onRegenerate={!generating && hasCredits && restaurant ? () => { setRegenTarget(item); setRegenInstructions('') } : undefined}
               />
             ))}
           </div>
@@ -336,7 +328,7 @@ export function PhotosPage() {
         <button
           onClick={() => {
             const userItems = items.filter((i) => i.image_source === 'user' && i.image_url)
-            if (userItems.length > 0) generateBatch(userItems, restaurant, model)
+            if (userItems.length > 0) generateBatch(userItems, restaurant)
           }}
           disabled={!!regenerating || !hasCredits || !profileReady}
           className="w-full py-4 bg-gradient-to-r from-[#C9A961] to-[#D4B96E] text-white rounded-2xl text-sm font-semibold
@@ -362,7 +354,7 @@ export function PhotosPage() {
           </div>
           {restaurant && hasCredits && profileReady && (
             <button
-              onClick={() => generateBatch(withoutPhotos, restaurant, model)}
+              onClick={() => generateBatch(withoutPhotos, restaurant)}
               disabled={generating}
               className="shrink-0 px-4 py-2.5 bg-[#C9A961] text-white text-xs font-semibold rounded-xl active:scale-95 transition-all disabled:opacity-50"
             >
@@ -381,9 +373,69 @@ export function PhotosPage() {
           regenerating={regenerating}
           onClose={() => setFullscreenIndex(null)}
           onNavigate={setFullscreenIndex}
-          onRegenerate={handleRegenerate}
+          onRegenerate={(item) => { setRegenTarget(item); setRegenInstructions('') }}
           onDownload={handleDownload}
         />
+      )}
+
+      {/* Regenerate popup */}
+      {regenTarget && (
+        <div className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center bg-black/50 animate-fade-in" onClick={() => setRegenTarget(null)}>
+          <div
+            className="w-full lg:w-[420px] bg-white rounded-t-2xl lg:rounded-2xl p-5 space-y-4 animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              {regenTarget.image_url && (
+                <img src={regenTarget.image_url} alt="" className="w-14 h-14 rounded-xl object-cover shrink-0" />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#2C2622] truncate">{regenTarget.nom}</p>
+                <p className="text-xs text-[#2C2622]/40 mt-0.5">{t('photos.regenerate')}</p>
+              </div>
+              <button onClick={() => setRegenTarget(null)} className="p-1.5 rounded-full hover:bg-[#F0EDE8] transition-colors">
+                <X size={18} className="text-[#2C2622]/40" />
+              </button>
+            </div>
+
+            {/* Instructions input */}
+            <input
+              type="text"
+              value={regenInstructions}
+              onChange={(e) => setRegenInstructions(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleRegenerate(regenTarget, regenInstructions.trim() || undefined)
+                  setRegenTarget(null)
+                }
+              }}
+              placeholder={t('photos.instructions.placeholder')}
+              autoFocus
+              className="w-full bg-[#F0EDE8] text-sm text-[#2C2622] placeholder:text-[#2C2622]/30 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#C9A961]/30"
+            />
+
+            {/* Actions */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setRegenTarget(null)}
+                className="flex-1 py-3 text-sm font-medium text-[#2C2622]/50 bg-[#F0EDE8] rounded-xl active:scale-[0.97] transition-all"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={() => {
+                  handleRegenerate(regenTarget, regenInstructions.trim() || undefined)
+                  setRegenTarget(null)
+                }}
+                className="flex-1 py-3 text-sm font-semibold text-white bg-[#C9A961] rounded-xl active:scale-[0.97] transition-all flex items-center justify-center gap-2"
+              >
+                {regenInstructions.trim() ? <Send size={14} /> : <RefreshCw size={14} />}
+                {t('photos.regenerate')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -96,3 +96,49 @@ html {
 .animate-fullscreen-enter {
   animation: fullscreen-enter 0.2s ease-out;
 }
+
+/* ── Landing page — CTA shine sweep ────────────────────────────────────── */
+@keyframes cta-shine {
+  0%, 75% { transform: translateX(-100%) skewX(-15deg); }
+  100%    { transform: translateX(250%) skewX(-15deg); }
+}
+.cta-shine {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.cta-shine::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+  animation: cta-shine 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ── Landing page — FAQ smooth toggle ──────────────────────────────────── */
+.faq-answer {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s ease-out;
+}
+.faq-answer[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.faq-answer > div {
+  overflow: hidden;
+}
+
+/* ── Landing page — step connector on mobile ──────────────────────────── */
+.step-connector::after {
+  content: '';
+  display: block;
+  width: 2px;
+  height: 24px;
+  margin: 0 auto;
+  background: linear-gradient(to bottom, #C9A961 40%, transparent);
+}
+@media (min-width: 1024px) {
+  .step-connector::after { display: none; }
+}
