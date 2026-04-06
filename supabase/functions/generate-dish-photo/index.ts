@@ -915,9 +915,19 @@ class PromptBlockBuilder {
 function addImageMappingBlock(builder: PromptBlockBuilder, mode: GenerationMode, hasRestaurant: boolean, hasDishRef: boolean, hasAmbiance: boolean, hasSibling: boolean): void {
   if (mode === 'enhance') {
     const lines = ['[IMAGE ROLE MAP]'];
-    if (hasDishRef) lines.push('Image 1 "dish_photo.png" = the REAL dish photo to enhance. PRESERVE this dish exactly.');
-    if (hasRestaurant) lines.push(`Image ${hasDishRef ? 2 : 1} "restaurant_style.png" = restaurant interior for lighting, surfaces, and color temperature.`);
-    if (hasSibling) lines.push(`Image ${(hasDishRef ? 1 : 0) + (hasRestaurant ? 1 : 0) + 1} "sibling_style.png" = previously generated photo — match its visual style exactly.`);
+    if (hasDishRef) lines.push(
+      'Image 1 "dish_photo.png" = the REAL dish photo to enhance. PRESERVE the dish exactly: every ingredient, plate/bowl shape and color, food positioning, quantities, arrangement.'
+    );
+    if (hasRestaurant) lines.push(
+      `Image ${hasDishRef ? 2 : 1} "restaurant_style.png" = the restaurant's OWN interior photo. ` +
+      `This is the PRIMARY VISUAL INSPIRATION for the NEW BACKDROP and environment around the dish. ` +
+      `You MUST sample from this image: its dominant color palette, surface materials (wood grain, marble veins, stone, tile, concrete, fabric weave), textures, lighting temperature (warm/cool), and overall mood. ` +
+      `The new table, surface, and surroundings MUST visibly echo the colors, materials, and design seen in this image. ` +
+      `Do NOT fall back to a generic studio surface — the backdrop must look like it belongs to THIS restaurant.`
+    );
+    if (hasSibling) lines.push(
+      `Image ${(hasDishRef ? 1 : 0) + (hasRestaurant ? 1 : 0) + 1} "sibling_style.png" = previously generated photo from this same menu — match its visual style exactly.`
+    );
     builder.add('imageMapping', 'SYSTEM_P0', lines.join('\n'));
   } else if (mode === 'styled') {
     const lines = ['[IMAGE ROLE MAP]'];
@@ -1192,6 +1202,8 @@ function buildPromptForDish(input: DishPromptInput): string {
     // P0 blocks — image roles + style declaration
     addImageMappingBlock(builder, mode, input.hasRestaurantPhoto, true, false, input.hasSiblingImage);
     addStyleDeclarationBlock(builder);
+    // Same SYSTEM_P0 ADN block as styled mode — ensures the new backdrop reflects the restaurant identity
+    addRestaurantIdentityBlock(builder, input.restaurantStyleDescription, input.cuisineProfile, input.hasRestaurantPhoto);
     addEnhanceModeBlocks(builder, input.name, input.description, input.restaurantStyleDescription, input.backgroundDescription);
     addConsistencyBlock(builder, mode, input.hasSiblingImage);
     addRestrictionsBlock(builder);
