@@ -36,6 +36,7 @@ export interface MenuItem {
   item_type?: 'plat' | 'formule' | 'boisson' | 'dessert';
   image_source?: 'platform' | 'generated' | 'enhanced' | 'user' | null;
   generated_at?: string | null;
+  batch_id?: string | null;
   position?: number;
 }
 

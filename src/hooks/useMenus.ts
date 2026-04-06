@@ -72,18 +72,24 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
       setMenu(menuData as MenuRow)
 
       const { data: itemsData, error: itemsError } = await supabase
-        .from('menu_items').select('*, generated_images(created_at)')
+        .from('menu_items').select('*, generated_images(created_at, batch_id)')
         .eq('menu_id', menuData.id)
         .order('position', { ascending: true })
+        .order('created_at', { foreignTable: 'generated_images', ascending: false })
 
       if (cancelled) return
       if (itemsError) { setError(itemsError.message); setLoading(false); return }
 
       const menuItems = (itemsData ?? []).map((row) => {
         const { generated_images, ...item } = row as Record<string, unknown>
-        const gi = generated_images as { created_at: string } | { created_at: string }[] | null
-        const genAt = Array.isArray(gi) ? gi[0]?.created_at : gi?.created_at
-        return { ...item, generated_at: genAt ?? null } as MenuItem
+        type GenImg = { created_at: string; batch_id: string | null }
+        const gi = generated_images as GenImg | GenImg[] | null
+        const first = Array.isArray(gi) ? gi[0] : gi
+        return {
+          ...item,
+          generated_at: first?.created_at ?? null,
+          batch_id: first?.batch_id ?? null,
+        } as MenuItem
       })
       setItems(menuItems)
 

@@ -15,7 +15,7 @@ import { FullscreenViewer } from '@/components/photos/FullscreenViewer'
 import type { MenuItem } from '@/types'
 
 export function PhotosPage() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const location = useLocation()
   const navigate = useNavigate()
   const { restaurant } = useRestaurant()
@@ -76,38 +76,63 @@ export function PhotosPage() {
   const withoutPhotos = items.filter((i) => !i.image_url)
   const userPhotosCount = items.filter((i) => i.image_source === 'user').length
 
-  // Group photos by generation date
+  // Group photos by generation session (batch_id), with day fallback for legacy rows
   const photoGroups = useMemo(() => {
     const groups = new Map<string, { label: string; sortKey: string; items: MenuItem[]; globalIndices: number[] }>()
 
+    const today = new Date().toISOString().slice(0, 10)
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+    const locale = lang === 'fr' ? 'fr-FR' : 'en-US'
+
+    const formatTime = (d: Date): string => {
+      if (lang === 'fr') {
+        return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', hour12: false }).replace(':', 'h')
+      }
+      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    }
+
+    const formatDatePart = (d: Date, dateOnly: string, withYear: boolean): string => {
+      if (dateOnly === today) return t('photos.today')
+      if (dateOnly === yesterday) return t('photos.yesterday')
+      return d.toLocaleDateString(locale, withYear
+        ? { day: 'numeric', month: 'long', year: 'numeric' }
+        : { day: 'numeric', month: 'long' })
+    }
+
     withPhotos.forEach((item, globalIndex) => {
-      let dateKey: string
+      let groupKey: string
       let label: string
       let sortKey: string
 
-      if (item.generated_at) {
+      if (item.generated_at && item.batch_id) {
+        // New behavior: group by batch_id with date+time label
+        groupKey = item.batch_id
+        sortKey = item.generated_at
         const d = new Date(item.generated_at)
-        dateKey = d.toISOString().slice(0, 10)
-        sortKey = dateKey
-        const today = new Date().toISOString().slice(0, 10)
-        const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
-        if (dateKey === today) label = t('photos.today')
-        else if (dateKey === yesterday) label = t('photos.yesterday')
-        else label = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+        const dateOnly = d.toISOString().slice(0, 10)
+        const datePart = formatDatePart(d, dateOnly, false)
+        const time = formatTime(d)
+        label = `${datePart} ${t('photos.at')} ${time}`
+      } else if (item.generated_at) {
+        // Fallback: legacy photos without batch_id → group by day
+        const d = new Date(item.generated_at)
+        groupKey = d.toISOString().slice(0, 10)
+        sortKey = groupKey
+        label = formatDatePart(d, groupKey, true)
       } else {
-        dateKey = '__uploaded__'
-        sortKey = '9999-99-99'
+        groupKey = '__uploaded__'
+        sortKey = '0000-00-00'
         label = t('photos.uploaded')
       }
 
-      if (!groups.has(dateKey)) groups.set(dateKey, { label, sortKey, items: [], globalIndices: [] })
-      const group = groups.get(dateKey)!
+      if (!groups.has(groupKey)) groups.set(groupKey, { label, sortKey, items: [], globalIndices: [] })
+      const group = groups.get(groupKey)!
       group.items.push(item)
       group.globalIndices.push(globalIndex)
     })
 
     return [...groups.values()].sort((a, b) => b.sortKey.localeCompare(a.sortKey))
-  }, [withPhotos, t])
+  }, [withPhotos, t, lang])
 
   const handleRegenerate = useCallback(async (item: MenuItem, instructions?: string) => {
     if (!restaurant) return
@@ -303,14 +328,12 @@ export function PhotosPage() {
         </div>
       )}
 
-      {/* Photo grid grouped by date */}
+      {/* Photo grid grouped by generation session */}
       {photoGroups.map((group) => (
         <div key={group.label} className="space-y-2">
-          {photoGroups.length > 1 && (
-            <h2 className="text-xs font-semibold text-[#2C2622]/30 uppercase tracking-wider">
-              {group.label} ({group.items.length})
-            </h2>
-          )}
+          <h2 className="text-xs font-semibold text-[#2C2622]/30 uppercase tracking-wider">
+            {group.label} · {group.items.length} {group.items.length === 1 ? t('photos.countOne') : t('photos.countMany')}
+          </h2>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
             {group.items.map((item, i) => (
               <PhotoCard

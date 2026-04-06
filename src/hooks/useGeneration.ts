@@ -68,7 +68,7 @@ async function getUserId(): Promise<string> {
  * Storage RLS requires path: {userId}/filename — so we prefix with the authenticated user's ID.
  * Returns the public Storage URL.
  */
-async function persistImage(itemId: string, dataUri: string, userId: string, imageSource: 'generated' | 'enhanced' = 'generated', provider?: GenerationModel): Promise<string> {
+async function persistImage(itemId: string, dataUri: string, userId: string, imageSource: 'generated' | 'enhanced' = 'generated', provider?: GenerationModel, batchId?: string): Promise<string> {
   // Convert data URI to Blob
   const res = await fetch(dataUri)
   const blob = await res.blob()
@@ -98,7 +98,7 @@ async function persistImage(itemId: string, dataUri: string, userId: string, ima
   // Insert into generated_images
   const { error: insertError } = await supabase
     .from('generated_images')
-    .insert({ menu_item_id: itemId, image_url: publicUrl, generation_provider: provider ?? null })
+    .insert({ menu_item_id: itemId, image_url: publicUrl, generation_provider: provider ?? null, batch_id: batchId ?? null })
   if (insertError && import.meta.env.DEV) console.error('generated_images insert error:', insertError.message)
 
   return publicUrl
@@ -115,6 +115,7 @@ export function useGeneration(): UseGenerationReturn {
   // Generate photos for a batch of items — handles both fresh generation and enhance (user photos)
   const generateBatch = useCallback(async (items: MenuItem[], restaurant: Restaurant, model: GenerationModel = 'openai') => {
     if (items.length === 0) return
+    const batchId = crypto.randomUUID()
 
     const initialJobs: GenerationJob[] = items.map((item) => ({
       itemId: item.id,
@@ -191,7 +192,7 @@ export function useGeneration(): UseGenerationReturn {
           // Enhance always uses OpenAI regardless of toggle
           const provider = source === 'enhanced' ? 'openai' as const : model
           const storageUrl = img.imageUrl.startsWith('data:')
-            ? await persistImage(img.dishId, img.imageUrl, userId, source, provider)
+            ? await persistImage(img.dishId, img.imageUrl, userId, source, provider, batchId)
             : img.imageUrl
 
           setJobs((prev) =>
@@ -242,6 +243,7 @@ export function useGeneration(): UseGenerationReturn {
     siblingImageUrl?: string,
   ): Promise<string | null> => {
     try {
+      const batchId = crypto.randomUUID()
       await ensureSession()
       const userId = await getUserId()
 
@@ -266,7 +268,7 @@ export function useGeneration(): UseGenerationReturn {
 
       // Persist: upload to Storage + update DB
       return rawUrl.startsWith('data:')
-        ? await persistImage(item.id, rawUrl, userId, 'generated', model)
+        ? await persistImage(item.id, rawUrl, userId, 'generated', model, batchId)
         : rawUrl
     } catch {
       return null
@@ -279,6 +281,7 @@ export function useGeneration(): UseGenerationReturn {
     restaurant: Restaurant,
     sourceImageUrl: string,
   ): Promise<string | null> => {
+    const batchId = crypto.randomUUID()
     await ensureSession()
     const userId = await getUserId()
 
@@ -304,7 +307,7 @@ export function useGeneration(): UseGenerationReturn {
     if (!rawUrl) throw new Error('Pas d\'image retournée')
 
     return rawUrl.startsWith('data:')
-      ? await persistImage(item.id, rawUrl, userId, 'enhanced', 'openai')
+      ? await persistImage(item.id, rawUrl, userId, 'enhanced', 'openai', batchId)
       : rawUrl
   }, [])
 
