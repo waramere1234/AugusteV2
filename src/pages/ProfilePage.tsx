@@ -65,6 +65,7 @@ export function ProfilePage() {
     { done: !!restaurant?.name, label: t('profile.step.name') },
     { done: !!restaurant?.google_place_id, label: t('profile.step.google') },
     { done: !!restaurant?.cuisine_profile_id, label: t('profile.step.cuisine') },
+    { done: !!restaurant?.style_photo_url, label: t('profile.step.dna') },
   ]
   const completedCount = stepDefs.filter(s => s.done).length
   const completionPct = Math.round((completedCount / stepDefs.length) * 100)

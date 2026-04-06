@@ -67,6 +67,7 @@ const translations = {
   'profile.step.name': { fr: 'Nom', en: 'Name' },
   'profile.step.google': { fr: 'Google', en: 'Google' },
   'profile.step.cuisine': { fr: 'Cuisine', en: 'Cuisine' },
+  'profile.step.dna': { fr: 'ADN visuel', en: 'Visual DNA' },
   'profile.generated': { fr: 'photos générées', en: 'photos generated' },
   'profile.popular': { fr: 'Populaire', en: 'Popular' },
   'profile.paymentSuccess': { fr: 'Crédits ajoutés avec succès !', en: 'Credits added successfully!' },
