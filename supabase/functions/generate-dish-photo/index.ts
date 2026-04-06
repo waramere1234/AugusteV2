@@ -923,9 +923,12 @@ function addImageMappingBlock(builder: PromptBlockBuilder, mode: GenerationMode,
     const lines = ['[IMAGE ROLE MAP]'];
     let idx = 1;
     if (hasDishRef) { lines.push(`Image ${idx} "dish_reference.png" = plating style reference. Match its presentation and arrangement.`); idx++; }
-    if (hasRestaurant) { lines.push(`Image ${idx} "restaurant_style.png" = restaurant interior for lighting, surfaces, and color temperature.`); idx++; }
+    if (hasRestaurant) {
+      lines.push(`Image ${idx} "restaurant_style.png" = the restaurant's OWN interior photo. This is the PRIMARY VISUAL INSPIRATION for the BACKDROP and environment of the generated dish photo. You MUST sample from this image: its dominant color palette, surface materials (wood grain, marble veins, stone, tile, concrete, fabric weave), textures, lighting temperature (warm/cool), and overall mood. The table, tablecloth, background surface, and any visible surroundings of the plated dish MUST visibly echo the colors, materials, and design seen in this image. Do NOT fall back to generic category surfaces — the backdrop must look like it belongs to THIS restaurant.`);
+      idx++;
+    }
     if (hasAmbiance) { lines.push(`Image ${idx} "ambiance_style.png" = interior atmosphere reinforcement.`); idx++; }
-    if (hasSibling) { lines.push(`Image ${idx} "sibling_style.png" = previously generated photo — match its visual style exactly.`); }
+    if (hasSibling) { lines.push(`Image ${idx} "sibling_style.png" = previously generated photo from this same menu — match its visual style exactly so all dishes feel cohesive.`); }
     builder.add('imageMapping', 'SYSTEM_P0', lines.join('\n'));
   }
   // generation mode has no images → no imageMapping needed
@@ -945,14 +948,24 @@ function addNegativeBlock(builder: PromptBlockBuilder, description?: string): vo
   }
 }
 
-function addRestaurantIdentityBlock(builder: PromptBlockBuilder, restaurantStyleDescription?: string, cuisineProfile?: string): void {
-  if (!restaurantStyleDescription) return;
+function addRestaurantIdentityBlock(builder: PromptBlockBuilder, restaurantStyleDescription?: string, cuisineProfile?: string, hasRestaurantPhoto?: boolean): void {
+  if (!restaurantStyleDescription && !hasRestaurantPhoto) return;
   const profile = cuisineProfile ? CUISINE_PROFILE_DATA[cuisineProfile] : null;
   const ambianceLine = profile ? ` Restaurant ambiance: ${profile.ambiance}.` : '';
-  builder.add('restaurantIdentity', 'SYSTEM_P0',
-    `RESTAURANT VISUAL DNA (MANDATORY — override defaults): ${restaurantStyleDescription}.${ambianceLine} ` +
-    `Every photo MUST reflect this identity: same surfaces, same color palette, same lighting temperature, same mood, same atmosphere. ` +
-    `This takes priority over generic category defaults for surface, lighting, and plating style.`);
+  const descLine = restaurantStyleDescription ? ` Style description (reinforcement): ${restaurantStyleDescription}.` : '';
+
+  if (hasRestaurantPhoto) {
+    builder.add('restaurantIdentity', 'SYSTEM_P0',
+      `RESTAURANT VISUAL DNA (MANDATORY — override category defaults for backdrop): the BACKGROUND of this dish photo must be inspired by "restaurant_style.png". ` +
+      `Extract directly from that image: the dominant color palette, the surface materials (wood grain, marble veins, stone, tile, concrete, fabric), the textures, the lighting temperature (warm or cool), and the overall mood. ` +
+      `Apply these to the table surface, backdrop, and any surrounding environment visible around the plated dish. ` +
+      `The dish itself stays plated per category rules (plate type, garnish, camera angle) — but the environment around it MUST visibly echo the restaurant's own colors and design from restaurant_style.png.${ambianceLine}${descLine}`);
+  } else {
+    builder.add('restaurantIdentity', 'SYSTEM_P0',
+      `RESTAURANT VISUAL DNA (MANDATORY — override defaults): ${restaurantStyleDescription}.${ambianceLine} ` +
+      `Every photo MUST reflect this identity: same surfaces, same color palette, same lighting temperature, same mood, same atmosphere. ` +
+      `This takes priority over generic category defaults for surface, lighting, and plating style.`);
+  }
 }
 
 function addSubjectBlock(builder: PromptBlockBuilder, name: string, description?: string, category?: string, cuisineProfile?: string): void {
@@ -989,7 +1002,7 @@ function addCulturalBlock(builder: PromptBlockBuilder, cuisineProfile?: string, 
   if (parts.length > 0) builder.add('cultural', 'CUISINE', parts.join(' '));
 }
 
-function addPlatingAndSurfaceBlock(builder: PromptBlockBuilder, category: string, backgroundDescription?: string, restaurantStyleDescription?: string): void {
+function addPlatingAndSurfaceBlock(builder: PromptBlockBuilder, category: string, backgroundDescription?: string, restaurantStyleDescription?: string, hasRestaurantPhoto?: boolean): void {
   const key = normalizeCategory(category);
   const s = CATEGORY_STYLES[key] || CATEGORY_STYLES['default'];
 
@@ -998,14 +1011,17 @@ function addPlatingAndSurfaceBlock(builder: PromptBlockBuilder, category: string
     ? `Served on ${s.plate_type} (${s.plate_color}), garnished with ${s.garnish}.`
     : `Served on ${s.plate_type} (${s.plate_color}), no added garnish.`;
 
-  // Surface — cascade: USER > CUISINE > CATEGORY
+  // Surface — cascade: USER > RESTAURANT_PHOTO > CUISINE_TEXT > CATEGORY
   let surfaceLine: string;
   let priority: BlockPriority;
   if (backgroundDescription) {
     surfaceLine = `Surface: ${backgroundDescription}.`;
     priority = 'USER_INPUT';
+  } else if (hasRestaurantPhoto) {
+    surfaceLine = `Surface and backdrop: sample the surface materials, dominant colors, and textures DIRECTLY from "restaurant_style.png". The table surface, tablecloth, and backdrop behind the dish MUST match the color palette and materials visible in that image. Do NOT use the generic "${s.background}" default — the entire environment around the dish must visibly belong to this restaurant.`;
+    priority = 'USER_INPUT';
   } else if (restaurantStyleDescription) {
-    surfaceLine = `Surface: match the surfaces, materials, and environment from the restaurant's visual DNA. Do NOT use generic category surface.`;
+    surfaceLine = `Surface: match the surfaces, materials, and environment from the restaurant's visual DNA (${restaurantStyleDescription}). Do NOT use generic category surface.`;
     priority = 'USER_INPUT';
   } else {
     surfaceLine = `Surface: ${s.background}.`;
@@ -1185,7 +1201,7 @@ function buildPromptForDish(input: DishPromptInput): string {
     addStyleDeclarationBlock(builder);
 
     // Restaurant identity — ADN visuel as top priority
-    addRestaurantIdentityBlock(builder, input.restaurantStyleDescription, input.cuisineProfile);
+    addRestaurantIdentityBlock(builder, input.restaurantStyleDescription, input.cuisineProfile, input.hasRestaurantPhoto);
 
     // Subject cluster
     addNegativeBlock(builder, input.description);
@@ -1196,7 +1212,7 @@ function buildPromptForDish(input: DishPromptInput): string {
     addCulturalBlock(builder, input.cuisineProfile, input.cuisineTypes, input.restaurantType, input.gastroLevel);
 
     // Visual specification
-    addPlatingAndSurfaceBlock(builder, input.category, input.backgroundDescription, input.restaurantStyleDescription);
+    addPlatingAndSurfaceBlock(builder, input.category, input.backgroundDescription, input.restaurantStyleDescription, input.hasRestaurantPhoto);
     addCameraBlock(builder, input.category);
     addLightingBlock(builder, mode, input.restaurantStyleDescription, input.cuisineProfile);
     addMicroTexturesBlock(builder, input.category);
@@ -1536,15 +1552,38 @@ Deno.serve(async (req) => {
           }
         }
 
+        // Fetch sibling image if URL provided but no base64 yet
+        if (dish.siblingImageUrl && !dish.siblingImageBase64 && isAllowedImageUrl(dish.siblingImageUrl)) {
+          try {
+            const sibController = new AbortController();
+            const sibTimeout = setTimeout(() => sibController.abort(), 10_000);
+            const sibResponse = await fetch(dish.siblingImageUrl, { signal: sibController.signal });
+            clearTimeout(sibTimeout);
+            if (sibResponse.ok) {
+              const buffer = await sibResponse.arrayBuffer();
+              const bytes = new Uint8Array(buffer);
+              let binary = '';
+              for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+              }
+              dish.siblingImageBase64 = btoa(binary);
+              console.log(`✅ Sibling image fetched: ${dish.siblingImageUrl.substring(0, 60)}...`);
+            }
+          } catch (e) {
+            console.warn(`⚠️ Sibling image fetch failed for ${dish.name}: ${e}`);
+          }
+        }
+
         // Use pre-fetched restaurant photo (or per-dish override)
         const finalRestaurantPhotoBase64 = dish.restaurantPhotoBase64 || sharedRestaurantPhotoBase64;
-
-        const hasStyleImages = !!(finalDishReferenceBase64 || finalRestaurantPhotoBase64 || dish.ambiancePhotoBase64);
-        console.log(`Processing: ${dish.name} | mode: ${hasStyleImages ? 'style-images (/edits)' : 'text-only (/generations)'}`);
 
         const isAnchor = !siblingForBatch && !dish.isEnhance;
         const siblingBase64 = dish.siblingImageBase64
           || (!dish.isEnhance && siblingForBatch ? siblingForBatch : '');
+
+        const hasStyleImages = !!(finalDishReferenceBase64 || finalRestaurantPhotoBase64 || dish.ambiancePhotoBase64 || siblingBase64);
+        console.log(`Processing: ${dish.name} | mode: ${hasStyleImages ? 'style-images (/edits)' : 'text-only (/generations)'}`);
+
         const hasRestaurant = !!finalRestaurantPhotoBase64;
         const hasDishRef = !!finalDishReferenceBase64;
         const hasAmbiance = !!dish.ambiancePhotoBase64;

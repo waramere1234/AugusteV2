@@ -25,7 +25,7 @@ interface UseGenerationReturn {
   insufficientCredits: boolean
   clearInsufficientCredits: () => void
   generateBatch: (items: MenuItem[], restaurant: Restaurant, model?: GenerationModel) => Promise<void>
-  regenerateOne: (item: MenuItem, restaurant: Restaurant, instructions?: string, model?: GenerationModel) => Promise<string | null>
+  regenerateOne: (item: MenuItem, restaurant: Restaurant, instructions?: string, model?: GenerationModel, siblingImageUrl?: string) => Promise<string | null>
   enhanceOne: (item: MenuItem, restaurant: Restaurant, sourceImageUrl: string) => Promise<string | null>
 }
 
@@ -33,7 +33,7 @@ interface UseGenerationReturn {
 function buildDish(
   item: MenuItem,
   restaurant: Restaurant,
-  options?: { instructions?: string; sourceImageUrl?: string; isEnhance?: boolean },
+  options?: { instructions?: string; sourceImageUrl?: string; isEnhance?: boolean; siblingImageUrl?: string },
 ) {
   const googlePhotoUrls = restaurant.google_business_data?.photo_urls?.slice(0, 2) ?? []
   return {
@@ -47,6 +47,7 @@ function buildDish(
     userInstructions: options?.instructions,
     sourceImageUrl: options?.sourceImageUrl,
     isEnhance: options?.isEnhance,
+    siblingImageUrl: options?.siblingImageUrl,
     restaurantCoverUrl: restaurant.style_photo_url || undefined,
     restaurantStyleDescription: restaurant.style_description || undefined,
     googlePhotoUrls: googlePhotoUrls.length > 0 ? googlePhotoUrls : undefined,
@@ -238,6 +239,7 @@ export function useGeneration(): UseGenerationReturn {
     restaurant: Restaurant,
     instructions?: string,
     model: GenerationModel = 'openai',
+    siblingImageUrl?: string,
   ): Promise<string | null> => {
     try {
       await ensureSession()
@@ -246,7 +248,7 @@ export function useGeneration(): UseGenerationReturn {
       const fnName = EDGE_FUNCTIONS[model]
       const { data, error } = await supabase.functions.invoke(fnName, {
         body: {
-          dishes: [buildDish(item, restaurant, { instructions })],
+          dishes: [buildDish(item, restaurant, { instructions, siblingImageUrl })],
           restaurantType: restaurant.cuisine_profile_id,
         },
       })

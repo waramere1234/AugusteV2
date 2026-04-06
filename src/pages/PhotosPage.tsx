@@ -116,14 +116,18 @@ export function PhotosPage() {
       if (item.image_source === 'user' && item.image_url) {
         await enhanceOne(item, restaurant, item.image_url)
       } else {
-        await regenerateOne(item, restaurant, instructions || undefined)
+        const sibling = items.find(
+          (i) => i.id !== item.id && i.image_url
+            && (i.image_source === 'generated' || i.image_source === 'enhanced'),
+        )
+        await regenerateOne(item, restaurant, instructions || undefined, undefined, sibling?.image_url || undefined)
       }
       reload()
     } catch {
       // Error is handled in the hook
     }
     setRegenerating(null)
-  }, [restaurant, regenerateOne, enhanceOne, reload])
+  }, [restaurant, regenerateOne, enhanceOne, reload, items])
 
   async function handleDownload(item: MenuItem) {
     if (!item.image_url) return

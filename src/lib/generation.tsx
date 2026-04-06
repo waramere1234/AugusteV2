@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import { useGeneration } from '@/hooks/useGeneration'
-import type { GenerationJob } from '@/hooks/useGeneration'
+import type { GenerationJob, GenerationModel } from '@/hooks/useGeneration'
 import type { MenuItem, Restaurant } from '@/types'
 
 interface GenerationContextValue {
@@ -10,7 +10,7 @@ interface GenerationContextValue {
   insufficientCredits: boolean
   clearInsufficientCredits: () => void
   generateBatch: (items: MenuItem[], restaurant: Restaurant) => Promise<void>
-  regenerateOne: (item: MenuItem, restaurant: Restaurant, instructions?: string) => Promise<string | null>
+  regenerateOne: (item: MenuItem, restaurant: Restaurant, instructions?: string, model?: GenerationModel, siblingImageUrl?: string) => Promise<string | null>
   enhanceOne: (item: MenuItem, restaurant: Restaurant, sourceImageUrl: string) => Promise<string | null>
 }
 
