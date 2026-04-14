@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Step 3: AI enrichment for remaining items ──
+    // ── Step 3: AI enrichment for remaining items (batched) ──
     if (needsAI.length > 0) {
       const contextParts: string[] = [];
       if (cuisineContext?.cultural_context) contextParts.push(`Cuisine: ${cuisineContext.cultural_context}`);
@@ -121,14 +121,6 @@ Deno.serve(async (req) => {
       if (cuisineContext?.serving) contextParts.push(`Typical serving: ${cuisineContext.serving}`);
       if (cuisineContext?.sauce) contextParts.push(`Typical sauces: ${cuisineContext.sauce}`);
       const contextStr = contextParts.length > 0 ? contextParts.join('. ') + '.' : '';
-
-      const dishList = needsAI.map((item) => {
-        const parts = [`- "${item.name}" (category: ${item.category || 'plat'})`];
-        if (item.description?.trim()) {
-          parts.push(`  Current description: "${item.description.trim()}"`);
-        }
-        return parts.join('\n');
-      }).join('\n');
 
       const systemPrompt = [
         'You are an expert in visual food descriptions for AI image generation.',
@@ -138,115 +130,146 @@ Deno.serve(async (req) => {
         'If a current description is provided, improve it — keep its ingredients but add visual detail.',
         contextStr ? `Restaurant context: ${contextStr}` : '',
         '',
-        'Respond in JSON format: { "descriptions": [{ "name": "dish name", "description": "enriched description" }] }',
+        'IMPORTANT: Each dish has an index [N]. Return it in the response so we can match descriptions back.',
+        'Respond in JSON format: { "descriptions": [{ "index": 0, "name": "dish name", "description": "enriched description" }] }',
       ].filter(Boolean).join('\n');
 
-      const userPrompt = `Enrich these ${needsAI.length} dishes:\n${dishList}`;
+      // Process in batches of 15 to avoid GPT timeout
+      const BATCH_SIZE = 15;
+      for (let batchStart = 0; batchStart < needsAI.length; batchStart += BATCH_SIZE) {
+        const batch = needsAI.slice(batchStart, batchStart + BATCH_SIZE);
+        const batchNum = Math.floor(batchStart / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(needsAI.length / BATCH_SIZE);
 
-      console.log(`🤖 Enriching ${needsAI.length} dishes via GPT-4o-mini...`);
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30_000);
-
-      try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            response_format: { type: 'json_object' },
-            max_tokens: 2000,
-            temperature: 0.3,
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-
-        if (!response.ok) {
-          const errText = await response.text();
-          console.error(`❌ OpenAI error: ${response.status} — ${errText}`);
-          throw new Error(`OpenAI API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        const content = data.choices?.[0]?.message?.content;
-
-        if (content) {
-          const parsed = JSON.parse(content);
-          const aiDescriptions: { name: string; description: string }[] = parsed.descriptions ?? [];
-
-          // Match AI results back to items
-          for (const aiDesc of aiDescriptions) {
-            const aiCanonical = canonicalizeDishName(aiDesc.name);
-            const matchedItem = needsAI.find((item) => {
-              const itemCanonical = canonicalizeDishName(item.name);
-              return itemCanonical === aiCanonical || item.name.toLowerCase() === aiDesc.name.toLowerCase();
-            });
-            if (matchedItem) {
-              descriptions.push({ itemId: matchedItem.id, description: aiDesc.description });
-              console.log(`✅ Enriched: ${matchedItem.name}`);
-            }
+        const dishList = batch.map((item, idx) => {
+          const globalIdx = batchStart + idx;
+          const parts = [`- [${globalIdx}] "${item.name}" (category: ${item.category || 'plat'})`];
+          if (item.description?.trim()) {
+            parts.push(`  Current description: "${item.description.trim()}"`);
           }
+          return parts.join('\n');
+        }).join('\n');
 
-          // Save to dish_templates (ai_enriched, never overwrite user_validated)
-          const templateUpserts = aiDescriptions.map((aiDesc) => {
-            const canonical = canonicalizeDishName(aiDesc.name);
-            const original = needsAI.find((item) => {
-              const c = canonicalizeDishName(item.name);
-              return c === canonical || item.name.toLowerCase() === aiDesc.name.toLowerCase();
-            });
-            return {
-              cuisine_profile_id: cuisineProfileId,
-              canonical_name: canonical,
-              display_name: original?.name ?? aiDesc.name,
-              description: aiDesc.description,
-              category: original?.category || 'plat',
-              source: 'ai_enriched',
-            };
+        const userPrompt = `Enrich these ${batch.length} dishes:\n${dishList}`;
+
+        console.log(`🤖 Batch ${batchNum}/${totalBatches}: enriching ${batch.length} dishes via GPT-4o-mini...`);
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 60_000);
+
+        try {
+          const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+              ],
+              response_format: { type: 'json_object' },
+              max_tokens: 4000,
+              temperature: 0.3,
+            }),
+            signal: controller.signal,
           });
+          clearTimeout(timeout);
 
-          if (templateUpserts.length > 0) {
-            // Only upsert where source is NOT user_validated
-            // Use a two-step approach: check existing user_validated, then upsert the rest
-            const existingValidated = new Set<string>();
-            const { data: validatedRows } = await supabase
-              .from('dish_templates')
-              .select('canonical_name')
-              .eq('cuisine_profile_id', cuisineProfileId)
-              .eq('source', 'user_validated')
-              .in('canonical_name', templateUpserts.map((t) => t.canonical_name));
+          if (!response.ok) {
+            const errText = await response.text();
+            console.error(`❌ OpenAI error batch ${batchNum}: ${response.status} — ${errText}`);
+            continue; // Skip this batch, try next
+          }
 
-            if (validatedRows) {
-              for (const row of validatedRows) {
-                existingValidated.add(row.canonical_name);
+          const data = await response.json();
+          const content = data.choices?.[0]?.message?.content;
+
+          if (content) {
+            const parsed = JSON.parse(content);
+            const aiDescriptions: { index?: number; name: string; description: string }[] = parsed.descriptions ?? [];
+
+            console.log(`✅ Batch ${batchNum}: GPT returned ${aiDescriptions.length} descriptions`);
+
+            // Match AI results back to items — prefer index, fallback to name
+            for (const aiDesc of aiDescriptions) {
+              let matchedItem: EnrichItem | undefined;
+
+              // Primary: match by global index (reliable)
+              if (typeof aiDesc.index === 'number' && aiDesc.index >= 0 && aiDesc.index < needsAI.length) {
+                matchedItem = needsAI[aiDesc.index];
+              }
+
+              // Fallback: match by name
+              if (!matchedItem) {
+                const aiCanonical = canonicalizeDishName(aiDesc.name);
+                matchedItem = needsAI.find((item) => {
+                  const itemCanonical = canonicalizeDishName(item.name);
+                  return itemCanonical === aiCanonical || item.name.toLowerCase() === aiDesc.name.toLowerCase();
+                });
+              }
+
+              if (matchedItem) {
+                descriptions.push({ itemId: matchedItem.id, description: aiDesc.description });
+              } else {
+                console.warn(`⚠️ No match: "${aiDesc.name}" (index: ${aiDesc.index})`);
               }
             }
 
-            const toUpsert = templateUpserts.filter((t) => !existingValidated.has(t.canonical_name));
-            if (toUpsert.length > 0) {
-              const { error: upsertError } = await supabase
+            // Save to dish_templates
+            const templateUpserts = aiDescriptions.map((aiDesc) => {
+              let original: EnrichItem | undefined;
+              if (typeof aiDesc.index === 'number' && aiDesc.index >= 0 && aiDesc.index < needsAI.length) {
+                original = needsAI[aiDesc.index];
+              }
+              if (!original) {
+                const canonical = canonicalizeDishName(aiDesc.name);
+                original = needsAI.find((item) => {
+                  const c = canonicalizeDishName(item.name);
+                  return c === canonical || item.name.toLowerCase() === aiDesc.name.toLowerCase();
+                });
+              }
+              return {
+                cuisine_profile_id: cuisineProfileId,
+                canonical_name: canonicalizeDishName(original?.name ?? aiDesc.name),
+                display_name: original?.name ?? aiDesc.name,
+                description: aiDesc.description,
+                category: original?.category || 'plat',
+                source: 'ai_enriched',
+              };
+            });
+
+            if (templateUpserts.length > 0) {
+              const existingValidated = new Set<string>();
+              const { data: validatedRows } = await supabase
                 .from('dish_templates')
-                .upsert(toUpsert, { onConflict: 'cuisine_profile_id,canonical_name' });
-              if (upsertError) {
-                console.warn(`⚠️ dish_templates upsert error: ${upsertError.message}`);
-              } else {
-                console.log(`💾 Saved ${toUpsert.length} templates to dish_templates`);
+                .select('canonical_name')
+                .eq('cuisine_profile_id', cuisineProfileId)
+                .eq('source', 'user_validated')
+                .in('canonical_name', templateUpserts.map((t) => t.canonical_name));
+
+              if (validatedRows) {
+                for (const row of validatedRows) existingValidated.add(row.canonical_name);
+              }
+
+              const toUpsert = templateUpserts.filter((t) => !existingValidated.has(t.canonical_name));
+              if (toUpsert.length > 0) {
+                const { error: upsertError } = await supabase
+                  .from('dish_templates')
+                  .upsert(toUpsert, { onConflict: 'cuisine_profile_id,canonical_name' });
+                if (upsertError) console.warn(`⚠️ dish_templates upsert: ${upsertError.message}`);
+                else console.log(`💾 Saved ${toUpsert.length} templates`);
               }
             }
           }
+        } catch (fetchError) {
+          clearTimeout(timeout);
+          const isTimeout = fetchError instanceof DOMException && fetchError.name === 'AbortError';
+          console.error(`❌ Batch ${batchNum} ${isTimeout ? 'TIMEOUT (60s)' : 'error'}: ${fetchError}`);
+          // Continue with next batch
         }
-      } catch (fetchError) {
-        clearTimeout(timeout);
-        const isTimeout = fetchError instanceof DOMException && fetchError.name === 'AbortError';
-        console.error(`❌ GPT-4o-mini ${isTimeout ? 'timeout' : 'error'}: ${fetchError}`);
-        // Fail gracefully — return whatever template matches we have
       }
     }
 

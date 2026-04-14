@@ -197,32 +197,25 @@ export function MenuPage() {
         </div>
       )}
 
-      {/* Enrich descriptions button — show when items lack descriptions */}
-      {(() => {
-        const missingDesc = items.filter((i) => !i.description?.trim()).length
-        if (missingDesc === 0 || !restaurant?.cuisine_profile_id) return null
-        return (
-          <button
-            onClick={() => enrichDescriptions(restaurant.cuisine_profile_id!)}
-            disabled={enriching}
-            className="w-full flex items-center gap-3 bg-[#C9A961]/5 hover:bg-[#C9A961]/10 border border-[#C9A961]/20 rounded-xl px-4 py-3 transition-all active:scale-[0.98] disabled:opacity-60"
-          >
-            {enriching ? (
-              <Loader2 size={18} className="animate-spin text-[#C9A961] shrink-0" />
-            ) : (
-              <FileText size={18} className="text-[#C9A961] shrink-0" />
-            )}
-            <div className="flex-1 text-left">
-              <p className="text-sm font-medium text-[#2C2622]">
-                {enriching ? t('menu.enriching') : t('menu.enrichDescriptions')}
-              </p>
-              <p className="text-xs text-[#2C2622]/40">
-                {missingDesc} {t('menu.noDescription')}
-              </p>
-            </div>
-          </button>
-        )
-      })()}
+      {/* Enrich descriptions button — always visible when items exist */}
+      {items.length > 0 && restaurant?.cuisine_profile_id && (
+        <button
+          onClick={() => enrichDescriptions(restaurant.cuisine_profile_id!)}
+          disabled={enriching}
+          className="w-full flex items-center gap-3 bg-[#C9A961]/5 hover:bg-[#C9A961]/10 border border-[#C9A961]/20 rounded-xl px-4 py-3 transition-all active:scale-[0.98] disabled:opacity-60"
+        >
+          {enriching ? (
+            <Loader2 size={18} className="animate-spin text-[#C9A961] shrink-0" />
+          ) : (
+            <FileText size={18} className="text-[#C9A961] shrink-0" />
+          )}
+          <div className="flex-1 text-left">
+            <p className="text-sm font-medium text-[#2C2622]">
+              {enriching ? t('menu.enriching') : t('menu.enrichDescriptions')}
+            </p>
+          </div>
+        </button>
+      )}
 
       {/* Category pills */}
       {categories.length > 1 && (

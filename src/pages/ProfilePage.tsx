@@ -39,9 +39,15 @@ export function ProfilePage() {
   }, [applyGoogleData])
 
   const handleDisconnectGoogle = useCallback(() => {
+    // Clear ADN photo if it came from Google
+    const googlePhotos = restaurant?.google_business_data?.photo_urls ?? []
+    if (restaurant?.style_photo_url && googlePhotos.includes(restaurant.style_photo_url)) {
+      updateField('style_photo_url', null)
+      updateField('style_description', null)
+    }
     updateField('google_place_id', null)
     updateField('google_business_data', null)
-  }, [updateField])
+  }, [updateField, restaurant])
 
   const handleCuisineSelect = useCallback((id: string) => {
     updateField('cuisine_profile_id', id)

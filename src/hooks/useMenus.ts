@@ -111,6 +111,9 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), [])
 
+  // Ref to store pending auto-enrich after extraction
+  const pendingEnrichRef = useRef<string | null>(null)
+
   // ── Shared: animate items + save to DB + auto-enrich ────────────────────────
   async function processExtraction(
     aiItems: Record<string, unknown>[],
@@ -150,12 +153,12 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
     const { error: insertError } = await supabase.from('menu_items').insert(rows)
     if (insertError) throw new Error(insertError.message)
 
-    reload()
-
-    // Auto-enrich: always enrich after extraction (sparse descriptions benefit too)
+    // Schedule auto-enrich after reload — enrichDescriptions reads fresh items from DB
     if (cuisineProfileId) {
-      setTimeout(() => enrichDescriptions(cuisineProfileId), 500)
+      pendingEnrichRef.current = cuisineProfileId
     }
+
+    reload()
   }
 
   // ── Import from files (photos and/or PDFs) ─────────────────────────────────
@@ -233,16 +236,33 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
 
   // ── Enrich descriptions (template match + AI fallback) ─────────────────────
   const enrichDescriptions = useCallback(async (cuisineProfileId: string) => {
-    // Enrich items with empty OR sparse descriptions (< 15 words)
-    const itemsToEnrich = items.filter((i) => {
-      if (!i.description?.trim()) return true
-      return i.description.trim().split(/\s+/).length < 15
-    })
-    if (itemsToEnrich.length === 0) return
+    console.log('[enrich] called with cuisineProfileId:', cuisineProfileId, 'menu:', menu?.id ?? 'NULL')
+    if (!menu) { console.warn('[enrich] ABORT: menu is null'); return }
 
     setEnriching(true)
+    setError(null)
     try {
+      // Ensure valid auth token BEFORE any DB call
       await ensureSession()
+
+      // Fetch fresh items from DB to avoid stale closure
+      const { data: freshRows, error: fetchErr } = await supabase
+        .from('menu_items').select('id, nom, categorie, description, original_description')
+        .eq('menu_id', menu.id)
+
+      console.log('[enrich] DB fetch:', freshRows?.length ?? 0, 'items, error:', fetchErr?.message ?? 'none')
+
+      const freshItems = (freshRows ?? []) as Pick<MenuItem, 'id' | 'nom' | 'categorie' | 'description' | 'original_description'>[]
+
+      // Enrich items with empty OR sparse descriptions (< 15 words)
+      const itemsToEnrich = freshItems.filter((i) => {
+        if (!i.description?.trim()) return true
+        return i.description.trim().split(/\s+/).length < 15
+      })
+      console.log('[enrich] items to enrich:', itemsToEnrich.length, '/', freshItems.length,
+        'empty:', freshItems.filter(i => !i.description?.trim()).length,
+        'sparse:', freshItems.filter(i => i.description?.trim() && i.description.trim().split(/\s+/).length < 15).length)
+      if (itemsToEnrich.length === 0) { console.warn('[enrich] ABORT: 0 items need enrichment'); setEnriching(false); return }
 
       const profile = getCuisineProfile(cuisineProfileId)
       const cuisineContext = profile ? {
@@ -253,6 +273,7 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
         cultural_context: profile.cultural_context,
       } : null
 
+      console.log('[enrich] calling edge function with', itemsToEnrich.length, 'items...')
       const { data, error: fnError } = await supabase.functions.invoke('enrich-descriptions', {
         body: {
           items: itemsToEnrich.map((i) => ({
@@ -266,39 +287,63 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
         },
       })
 
+      console.log('[enrich] edge function response:', { success: data?.success, descCount: data?.descriptions?.length, error: fnError?.message ?? data?.error })
+
       if (fnError) throw new Error(fnError.message)
       if (!data?.success) throw new Error(data?.error || 'Erreur enrichissement')
 
       const descriptions: { itemId: string; description: string }[] = data.descriptions ?? []
+      console.log('[enrich] descriptions received:', descriptions.length)
 
-      // Batch update DB + local state — save original_description before overwriting
+      // Batch update DB — save original_description before overwriting
+      let dbUpdated = 0
       for (const desc of descriptions) {
-        const item = items.find((i) => i.id === desc.itemId)
+        const item = freshItems.find((i) => i.id === desc.itemId)
         const update: Record<string, string> = { description: desc.description }
         // Only save original if not already saved (first enrichment)
         if (item && !item.original_description) {
           update.original_description = item.description || ''
         }
-        await supabase.from('menu_items')
+        const { error: updateErr } = await supabase.from('menu_items')
           .update(update)
           .eq('id', desc.itemId)
+        if (updateErr) console.error('[enrich] DB update failed for', desc.itemId, updateErr.message)
+        else dbUpdated++
       }
+      console.log('[enrich] DB updated:', dbUpdated, '/', descriptions.length)
 
-      setItems((prev) => prev.map((item) => {
-        const match = descriptions.find((d) => d.itemId === item.id)
-        if (!match) return item
-        return {
-          ...item,
-          description: match.description,
-          original_description: item.original_description ?? item.description ?? '',
-        }
-      }))
+      // Update local state with enriched descriptions
+      setItems((prev) => {
+        const updated = prev.map((item) => {
+          const match = descriptions.find((d) => d.itemId === item.id)
+          if (!match) return item
+          return {
+            ...item,
+            description: match.description,
+            original_description: item.original_description ?? item.description ?? '',
+          }
+        })
+        const changed = updated.filter((item, i) => item.description !== prev[i]?.description).length
+        console.log('[enrich] local state: updated', changed, 'items out of', prev.length)
+        return updated
+      })
     } catch (err) {
+      console.error('[enrich] ERROR:', err)
       setError(err instanceof Error ? err.message : 'Erreur enrichissement')
     } finally {
       setEnriching(false)
+      console.log('[enrich] done')
     }
-  }, [items])
+  }, [menu])
+
+  // Trigger auto-enrich after reload completes (items are fresh from DB)
+  useEffect(() => {
+    if (pendingEnrichRef.current && items.length > 0 && !loading) {
+      const profileId = pendingEnrichRef.current
+      pendingEnrichRef.current = null
+      enrichDescriptions(profileId)
+    }
+  }, [items, loading, enrichDescriptions])
 
   // ── CRUD ────────────────────────────────────────────────────────────────────
   const updateItem = useCallback(async (itemId: string, updates: Partial<MenuItem>) => {
