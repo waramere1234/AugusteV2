@@ -476,15 +476,22 @@ const ACCOMPANIMENT_RULES: AccompanimentHint[] = [
 
 const SANDWICH_CATEGORIES = new Set(['kebab_sandwich', 'sandwich', 'doner', 'durum', 'wrap', 'french_tacos', 'burger', 'smash_burger', 'hot_dog']);
 
+// Categories where frites are traditionally INSIDE the bread/wrap (durum = rolled in lavash, french_tacos = grilled inside with cheese)
+const FRITES_INSIDE_CATEGORIES = new Set(['durum', 'french_tacos']);
+
 function detectAccompaniments(description: string, category: string): string {
   if (!description) return '';
   const lower = description.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const isSandwich = SANDWICH_CATEGORIES.has(normalizeCategory(category));
+  const normCat = normalizeCategory(category);
+  const isSandwich = SANDWICH_CATEGORIES.has(normCat);
   const hints: string[] = [];
 
   for (const rule of ACCOMPANIMENT_RULES) {
     if (lower.includes(rule.keyword)) {
-      const hint = isSandwich ? rule.inSandwich : rule.onPlate;
+      // For frites: only put inside for durum/french_tacos, otherwise always on the side
+      const isFrites = rule.keyword === 'frites' || rule.keyword === 'frite';
+      const putInside = isSandwich && isFrites ? FRITES_INSIDE_CATEGORIES.has(normCat) : isSandwich;
+      const hint = putInside ? rule.inSandwich : rule.onPlate;
       if (hint) hints.push(hint);
     }
   }
@@ -496,8 +503,20 @@ function detectAccompaniments(description: string, category: string): string {
 // EXTRACT QUANTITY INSTRUCTION — détecte "6 nuggets", "duo", "lot de 3", etc.
 // ============================================================================
 
-function extractQuantityInstruction(name: string, description?: string): string {
+function extractQuantityInstruction(name: string, description?: string, category?: string): string {
   const text = `${name} ${description || ''}`.toLowerCase();
+  const normCat = category ? normalizeCategory(category) : '';
+  const isSingleDish = SANDWICH_CATEGORIES.has(normCat) || ['pizza', 'tarte', 'quiche', 'crepe', 'galette_bretonne', 'omelette'].includes(normCat);
+
+  // Detect stacked ingredients inside a single dish (e.g. "3 steaks" in a burger = 1 burger with 3 patties)
+  const stackedMatch = text.match(/(\d+)\s*(?:steaks?|viandes?|galettes?|patties?|couches?|layers?)/i);
+  if (stackedMatch && isSingleDish) {
+    const count = parseInt(stackedMatch[1]);
+    if (count >= 2 && count <= 6) {
+      return `QUANTITY: Show ONE single ${normCat || 'dish'}. It contains ${count} stacked patties/layers INSIDE the same bun/bread. Do NOT show ${count} separate items — this is ONE dish with ${count} layers inside.`;
+    }
+  }
+
   const patterns = [
     /(\d+)\s*(?:pi[eè]ces?|pieces?|pcs?)/i,
     /(\d+)\s*(?:nuggets?|nems?|samoussas?|samosas?|beignets?|falafels?|wings?|ailes?|briouats?|gyozas?|dumplings?|raviolis?|bouchees?|morceaux?)/i,
@@ -524,10 +543,15 @@ function extractQuantityInstruction(name: string, description?: string): string 
       }
     }
   }
-  // Named quantities
+  // Named quantities — for single dishes (burger, sandwich), "double/triple" means stacked layers
   const namedQty: Record<string, number> = { duo: 2, trio: 3, double: 2, triple: 3 };
   for (const [word, qty] of Object.entries(namedQty)) {
-    if (text.includes(word)) return `QUANTITY: Show EXACTLY ${qty} pieces — count them precisely. Not ${qty - 1}, not ${qty + 1}, exactly ${qty}.`;
+    if (text.includes(word)) {
+      if (isSingleDish) {
+        return `QUANTITY: Show ONE single ${normCat || 'dish'} with ${qty} stacked patties/layers inside. Do NOT show ${qty} separate items.`;
+      }
+      return `QUANTITY: Show EXACTLY ${qty} pieces — count them precisely. Not ${qty - 1}, not ${qty + 1}, exactly ${qty}.`;
+    }
   }
   return '';
 }
@@ -992,8 +1016,8 @@ function addSubjectBlock(builder: PromptBlockBuilder, name: string, description?
   }
 }
 
-function addQuantityBlock(builder: PromptBlockBuilder, name: string, description?: string): void {
-  const qty = extractQuantityInstruction(name, description);
+function addQuantityBlock(builder: PromptBlockBuilder, name: string, description?: string, category?: string): void {
+  const qty = extractQuantityInstruction(name, description, category);
   if (qty) builder.add('quantity', 'SUBJECT', qty);
 }
 
@@ -1218,7 +1242,7 @@ function buildPromptForDish(input: DishPromptInput): string {
     // Subject cluster
     addNegativeBlock(builder, input.description);
     addSubjectBlock(builder, input.name, input.description, input.category, input.cuisineProfile);
-    addQuantityBlock(builder, input.name, input.description);
+    addQuantityBlock(builder, input.name, input.description, input.category);
 
     // Context
     addCulturalBlock(builder, input.cuisineProfile, input.cuisineTypes, input.restaurantType, input.gastroLevel);

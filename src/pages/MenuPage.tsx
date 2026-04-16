@@ -55,7 +55,7 @@ export function MenuPage() {
   const handleImportFiles = useCallback(async (files: File[]) => {
     if (!restaurant) return
     setShowImport(false)
-    await importFromFiles(files, restaurant.id, restaurant.cuisine_profile_id ?? undefined)
+    await importFromFiles(files, restaurant.id)
   }, [restaurant, importFromFiles])
 
   const handlePhotoUpload = useCallback(async (item: MenuItem, photoBase64: string) => {
@@ -93,7 +93,7 @@ export function MenuPage() {
   const handleImportUrl = useCallback(async (url: string) => {
     if (!restaurant) return
     setShowImport(false)
-    await importFromUrl(url, restaurant.id, restaurant.cuisine_profile_id ?? undefined)
+    await importFromUrl(url, restaurant.id)
   }, [restaurant, importFromUrl])
 
   // Count items per category for pills

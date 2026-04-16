@@ -16,6 +16,10 @@ interface EnrichItem {
   description?: string;
 }
 
+interface AIEnrichItem extends EnrichItem {
+  _templateHint?: string;
+}
+
 interface CuisineContext {
   bread?: string;
   serving?: string;
@@ -98,17 +102,25 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Step 2: Split items — template hits vs AI needed ──
+    // ── Step 2: Split items — 3 cases ──
     const descriptions: { itemId: string; description: string }[] = [];
-    const needsAI: EnrichItem[] = [];
+    const needsAI: AIEnrichItem[] = [];
 
     for (let i = 0; i < items.length; i++) {
       const canonical = canonicalNames[i];
       const templateDesc = templateMap.get(canonical);
-      if (templateDesc) {
+      const hasExistingDesc = items[i].description?.trim();
+
+      if (templateDesc && !hasExistingDesc) {
+        // Case A: empty description + template found → use template directly (free)
         descriptions.push({ itemId: items[i].id, description: templateDesc });
         console.log(`📋 Template hit: ${items[i].name} → reused`);
+      } else if (templateDesc && hasExistingDesc) {
+        // Case B: restaurant has description + template exists → GPT merges both
+        needsAI.push({ ...items[i], _templateHint: templateDesc });
+        console.log(`🔀 Template+desc merge: ${items[i].name} → GPT will fuse`);
       } else {
+        // Case C: no template → GPT enriches from scratch
         needsAI.push(items[i]);
       }
     }
@@ -130,6 +142,11 @@ Deno.serve(async (req) => {
         'If a current description is provided, improve it — keep its ingredients but add visual detail.',
         contextStr ? `Restaurant context: ${contextStr}` : '',
         '',
+        'VOCABULARY RULES:',
+        '- "crudités" in kebab/burger/snack/sandwich context = fresh lettuce, sliced tomato, sliced onions (describe each vegetable visually, not just "crudités")',
+        '- Fries/frites are ALWAYS served ON THE SIDE of the plate, NOT inside the sandwich/burger/kebab. Write "golden crispy fries served alongside" or similar. The only exceptions where fries go inside are durum wraps and French tacos.',
+        '- When a burger/sandwich has "N steaks" or "double/triple", it means N stacked patties inside ONE single bun — NOT N separate items',
+        '',
         'IMPORTANT: Each dish has an index [N]. Return it in the response so we can match descriptions back.',
         'Respond in JSON format: { "descriptions": [{ "index": 0, "name": "dish name", "description": "enriched description" }] }',
       ].filter(Boolean).join('\n');
@@ -146,6 +163,9 @@ Deno.serve(async (req) => {
           const parts = [`- [${globalIdx}] "${item.name}" (category: ${item.category || 'plat'})`];
           if (item.description?.trim()) {
             parts.push(`  Current description: "${item.description.trim()}"`);
+          }
+          if (item._templateHint) {
+            parts.push(`  Visual reference template: "${item._templateHint}". KEEP the restaurant's specific ingredients from their description, but use the template's photographic style (textures, plating, presentation).`);
           }
           return parts.join('\n');
         }).join('\n');
@@ -237,7 +257,7 @@ Deno.serve(async (req) => {
                 display_name: original?.name ?? aiDesc.name,
                 description: aiDesc.description,
                 category: original?.category || 'plat',
-                source: 'ai_enriched',
+                source: 'ai_generated',
               };
             });
 

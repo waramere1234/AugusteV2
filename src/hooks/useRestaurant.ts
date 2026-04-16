@@ -249,11 +249,12 @@ export function useRestaurant(): UseRestaurantReturn {
 
   // Upload photo to Supabase Storage
   const uploadPhoto = useCallback(async (file: File): Promise<string | null> => {
-    if (!restaurant) return null
+    if (!restaurant || !user) return null
 
     const ext = file.name.split('.').pop() ?? 'jpg'
-    const path = `restaurants/${restaurant.id}/photo_${Date.now()}.${ext}`
+    const path = `${user.id}/${restaurant.id}_photo_${Date.now()}.${ext}`
 
+    await ensureSession()
     const { error: uploadError } = await supabase.storage
       .from('restaurant-photos')
       .upload(path, file, { upsert: true })
@@ -270,7 +271,7 @@ export function useRestaurant(): UseRestaurantReturn {
     const publicUrl = urlData.publicUrl
     selectStylePhoto(publicUrl)
     return publicUrl
-  }, [restaurant, selectStylePhoto])
+  }, [restaurant, user, selectStylePhoto])
 
   return {
     restaurant,

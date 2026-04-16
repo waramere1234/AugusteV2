@@ -26,8 +26,8 @@ interface UseMenusReturn {
   enriching: boolean
   extractedItems: string[]
   error: string | null
-  importFromFiles: (files: File[], restaurantId: string, cuisineProfileId?: string) => Promise<void>
-  importFromUrl: (url: string, restaurantId: string, cuisineProfileId?: string) => Promise<void>
+  importFromFiles: (files: File[], restaurantId: string) => Promise<void>
+  importFromUrl: (url: string, restaurantId: string) => Promise<void>
   enrichDescriptions: (cuisineProfileId: string) => Promise<void>
   updateItem: (itemId: string, updates: Partial<MenuItem>) => Promise<void>
   deleteItem: (itemId: string) => Promise<void>
@@ -111,17 +111,13 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), [])
 
-  // Ref to store pending auto-enrich after extraction
-  const pendingEnrichRef = useRef<string | null>(null)
-
-  // ── Shared: animate items + save to DB + auto-enrich ────────────────────────
+  // ── Shared: animate items + save to DB ─────────────────────────────────────
   async function processExtraction(
     aiItems: Record<string, unknown>[],
     restId: string,
     fileName: string,
     sourceType: 'photo' | 'file' | 'url',
     includeImageUrl: boolean,
-    cuisineProfileId?: string,
   ) {
     // Animate (cancellable)
     for (const item of aiItems) {
@@ -153,16 +149,11 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
     const { error: insertError } = await supabase.from('menu_items').insert(rows)
     if (insertError) throw new Error(insertError.message)
 
-    // Schedule auto-enrich after reload — enrichDescriptions reads fresh items from DB
-    if (cuisineProfileId) {
-      pendingEnrichRef.current = cuisineProfileId
-    }
-
     reload()
   }
 
   // ── Import from files (photos and/or PDFs) ─────────────────────────────────
-  const importFromFiles = useCallback(async (files: File[], restId: string, cuisineProfileId?: string) => {
+  const importFromFiles = useCallback(async (files: File[], restId: string) => {
     for (const file of files) {
       if (file.size > MAX_FILE_SIZE) { setError('error.menu.fileTooLarge'); return }
       const mime = file.type || guessMimeType(file.name)
@@ -191,7 +182,7 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
       const hasPdf = files.some(f => (f.type || guessMimeType(f.name)) === 'application/pdf')
       const sourceType = files.length === 1 && !hasPdf ? 'photo' as const : 'file' as const
       const fileName = files.length === 1 ? files[0].name : `${files.length} fichiers`
-      await processExtraction(aiItems, restId, fileName, sourceType, false, cuisineProfileId)
+      await processExtraction(aiItems, restId, fileName, sourceType, false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'error.menu.extractionError')
     } finally {
@@ -200,7 +191,7 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
   }, [reload])
 
   // ── Import from URL (Uber Eats, Deliveroo, etc.) ───────────────────────────
-  const importFromUrl = useCallback(async (url: string, restId: string, cuisineProfileId?: string) => {
+  const importFromUrl = useCallback(async (url: string, restId: string) => {
     // Validate URL scheme to prevent SSRF (javascript:, file:, data:, etc.)
     try {
       const parsed = new URL(url)
@@ -226,7 +217,7 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
       const aiItems = data.data as Record<string, unknown>[]
       if (!aiItems?.length) throw new Error('error.menu.noItems')
 
-      await processExtraction(aiItems, restId, url, 'url', true, cuisineProfileId)
+      await processExtraction(aiItems, restId, url, 'url', true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'error.menu.extractionError')
     } finally {
@@ -312,15 +303,6 @@ export function useMenus(restaurantId: string | null): UseMenusReturn {
       setEnriching(false)
     }
   }, [menu])
-
-  // Trigger auto-enrich after reload completes (items are fresh from DB)
-  useEffect(() => {
-    if (pendingEnrichRef.current && items.length > 0 && !loading) {
-      const profileId = pendingEnrichRef.current
-      pendingEnrichRef.current = null
-      enrichDescriptions(profileId)
-    }
-  }, [items, loading, enrichDescriptions])
 
   // ── CRUD ────────────────────────────────────────────────────────────────────
   const updateItem = useCallback(async (itemId: string, updates: Partial<MenuItem>) => {
