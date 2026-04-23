@@ -170,8 +170,9 @@ export function useGeneration(): UseGenerationReturn {
 
       const images: { dishId: string; imageUrl: string | null; error?: string }[] = data.images ?? []
 
-      // Persist each image: upload to Storage + update DB
-      for (const img of images) {
+      // Persist all images in parallel: upload to Storage + update DB.
+      // Each image updates its own job independently so the UI can reveal images as they finish.
+      await Promise.all(images.map(async (img) => {
         // Skip failed enhance results — keep user photo untouched
         if (!img.imageUrl || img.error) {
           setJobs((prev) =>
@@ -183,7 +184,7 @@ export function useGeneration(): UseGenerationReturn {
                 : j,
             ),
           )
-          continue
+          return
         }
 
         try {
@@ -211,7 +212,7 @@ export function useGeneration(): UseGenerationReturn {
             ),
           )
         }
-      }
+      }))
 
       // Mark any items that didn't get an image as error
       setJobs((prev) =>

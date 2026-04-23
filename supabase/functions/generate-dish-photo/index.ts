@@ -2,9 +2,23 @@
 // Deploy: supabase functions deploy generate-dish-photo --no-verify-jwt
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { isAllowedImageUrl } from '../_shared/ssrf.ts'
 
-const IMAGE_MODEL = Deno.env.get('OPENAI_IMAGE_MODEL') || 'gpt-image-1.5';
+// SSRF validation — inlined from ../_shared/ssrf.ts for single-file deploy via MCP.
+// Blocks private/internal URLs passed to external APIs.
+function isAllowedImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false
+    const host = parsed.hostname
+    if (/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|169\.254\.|localhost|0\.0\.0\.0)/i.test(host)) return false
+    if (host.endsWith('.local') || host.endsWith('.internal')) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
+const IMAGE_MODEL = Deno.env.get('OPENAI_IMAGE_MODEL') || 'gpt-image-2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -638,10 +652,9 @@ async function generateWithStyleImages(
   dishReferenceBase64: string,
   restaurantPhotoBase64: string,
   ambiancePhotoBase64?: string,
-  quality: 'low' | 'medium' | 'high' = 'medium',
+  quality: 'low' | 'medium' | 'high' | 'auto' = 'medium',
   siblingImageBase64?: string,
   size: '1024x1024' | '1536x1024' | '1024x1536' = '1024x1024',
-  inputFidelity?: 'low' | 'high',
   outputFormat: 'webp' | 'png' = 'webp',
   isEnhance = false,
 ): Promise<string> {
@@ -670,8 +683,8 @@ async function generateWithStyleImages(
   formData.append('quality', quality);
   formData.append('n', '1');
   formData.append('output_format', outputFormat);
-  formData.append('background', 'opaque');
-  if (inputFidelity) formData.append('input_fidelity', inputFidelity);
+  // NOTE: input_fidelity is NOT sent — gpt-image-2 always processes inputs at high fidelity.
+  // NOTE: background='opaque' removed — unsupported in gpt-image-2 (no transparent bg support anyway).
 
   // Image order matters — gpt-image-1.5 biases attention toward earlier images
   if (isEnhance) {
@@ -733,7 +746,7 @@ async function generateWithStyleImages(
     console.error(`❌ OpenAI /edits error: ${errorMessage}`)
     if (status === 429) throw new Error('Limite de requêtes IA atteinte, réessayez dans quelques secondes')
     if (status === 400 && errorMessage.includes('content_policy')) throw new Error('Image refusée par la politique de contenu IA')
-    throw new Error('Erreur du service de génération d\'images')
+    throw new Error(`OpenAI /edits ${status}: ${errorMessage.slice(0, 300)}`)
   }
 
   const data = await response.json();
@@ -754,7 +767,7 @@ async function generateWithTextOnly(
   prompt: string,
   apiKey: string,
   size: '1024x1024' | '1536x1024' | '1024x1536' = '1024x1024',
-  quality: 'low' | 'medium' | 'high' = 'medium',
+  quality: 'low' | 'medium' | 'high' | 'auto' = 'medium',
   outputFormat: 'webp' | 'png' = 'webp',
 ): Promise<string> {
   // QA-CHECKED: Timeout 120s sur OpenAI image generations
@@ -775,8 +788,8 @@ async function generateWithTextOnly(
         size,
         quality,
         output_format: outputFormat,
-        background: 'opaque',
         n: 1,
+        // NOTE: background='opaque' removed — unsupported in gpt-image-2.
       }),
       signal: genController.signal,
     });
@@ -797,7 +810,7 @@ async function generateWithTextOnly(
     console.error(`❌ OpenAI /generations error: ${errorMessage}`)
     if (status === 429) throw new Error('Limite de requêtes IA atteinte, réessayez dans quelques secondes')
     if (status === 400 && errorMessage.includes('content_policy')) throw new Error('Image refusée par la politique de contenu IA')
-    throw new Error('Erreur du service de génération d\'images')
+    throw new Error(`OpenAI /generations ${status}: ${errorMessage.slice(0, 300)}`)
   }
 
   const data = await response.json();
@@ -880,8 +893,7 @@ interface PromptBlock {
 
 interface ResolvedApiParams {
   size: '1024x1024' | '1536x1024' | '1024x1536';
-  quality: 'low' | 'medium' | 'high';
-  input_fidelity?: 'low' | 'high';
+  quality: 'low' | 'medium' | 'high' | 'auto';
   output_format: 'webp' | 'png';
 }
 
@@ -1297,100 +1309,22 @@ function getAspectRatio(category: string): '1024x1024' | '1536x1024' | '1024x153
 }
 
 function resolveApiParams(
-  category: string, mode: GenerationMode, hasStyleImages: boolean,
-  isAnchor: boolean, dishQuality?: string,
+  category: string, mode: GenerationMode, _hasStyleImages: boolean,
+  _isAnchor: boolean, dishQuality?: string,
 ): ResolvedApiParams {
-  let quality: 'low' | 'medium' | 'high' = 'medium';
+  // gpt-image-2: 'medium' is visually very close to 'high' at ~1/4 the latency/cost.
+  // Enhance keeps 'high' to preserve user-photo fidelity. 'premium' opt-in stays.
+  // Anchor no longer boosted to 'high' — the restaurant photo reference provides the
+  // style lock at full fidelity automatically (gpt-image-2 auto-high-fidelity on inputs).
+  let quality: 'low' | 'medium' | 'high' | 'auto' = 'medium';
   if (mode === 'enhance') quality = 'high';
-  else if (isAnchor) quality = 'high';
   else if (dishQuality === 'premium') quality = 'high';
 
   return {
     size: getAspectRatio(category),
     quality,
-    ...(hasStyleImages ? { input_fidelity: 'high' as const } : {}),
     output_format: 'webp',
   };
-}
-
-// ============================================================================
-// QUALITY GATE — GPT-4o-mini vision verification (controlled by ENABLE_VERIFY)
-// ============================================================================
-
-const ENABLE_VERIFY = Deno.env.get('ENABLE_VERIFY') === 'true';
-
-interface VerifyResult {
-  pass: boolean;
-  reason: string;
-}
-
-async function verifyDishPhoto(
-  imageBase64: string,
-  dishName: string,
-  dishDescription: string | undefined,
-  apiKey: string,
-): Promise<VerifyResult> {
-  // Extract raw base64 data from data URI
-  let rawBase64 = imageBase64;
-  let mimeType = 'image/webp';
-  if (rawBase64.startsWith('data:')) {
-    const commaIdx = rawBase64.indexOf(',');
-    const header = rawBase64.substring(0, commaIdx);
-    mimeType = header.match(/:(.*?);/)?.[1] || mimeType;
-    rawBase64 = rawBase64.substring(commaIdx + 1);
-  }
-
-  const descPart = dishDescription ? ` described as: "${dishDescription}"` : '';
-  const userPrompt = `Does this food photo look like "${dishName}"${descPart}? Answer ONLY with JSON: {"pass": true/false, "reason": "brief reason"}`;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image_url',
-                image_url: { url: `data:${mimeType};base64,${rawBase64}`, detail: 'low' },
-              },
-              { type: 'text', text: userPrompt },
-            ],
-          },
-        ],
-        response_format: { type: 'json_object' },
-        max_tokens: 100,
-        temperature: 0,
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      console.warn(`⚠️ Verify API error: ${response.status}`);
-      return { pass: true, reason: 'verify_api_error' };
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) return { pass: true, reason: 'no_content' };
-
-    const parsed = JSON.parse(content) as VerifyResult;
-    return { pass: !!parsed.pass, reason: parsed.reason || '' };
-  } catch (err) {
-    clearTimeout(timeout);
-    console.warn(`⚠️ Verify failed (fail-open): ${err}`);
-    return { pass: true, reason: 'verify_error' };
-  }
 }
 
 // ============================================================================
@@ -1526,7 +1460,9 @@ Deno.serve(async (req) => {
     console.log(`Processing ${dishes.length} dishes...`);
 
     const results: { dishId: string; imageUrl: string | null; error?: string }[] = [];
-    const PARALLEL_BATCH_SIZE = 3;
+    // gpt-image-2: higher parallelism is safe — API tiers allow 5-10 concurrent image edits.
+    // If rate-limited, the outer loop still chunks so 429s self-recover on the next wave.
+    const PARALLEL_BATCH_SIZE = 5;
 
     // Style lock — first generated image serves as visual reference for batch consistency
     let firstGeneratedImageBase64: string | null = null;
@@ -1657,64 +1593,13 @@ Deno.serve(async (req) => {
             prompt, OPENAI_API_KEY!, finalDishReferenceBase64,
             finalRestaurantPhotoBase64, dish.ambiancePhotoBase64 || '',
             apiParams.quality, siblingBase64, apiParams.size,
-            apiParams.input_fidelity, apiParams.output_format, !!dish.isEnhance,
+            apiParams.output_format, !!dish.isEnhance,
           );
         } else {
           imageUrl = await generateWithTextOnly(
             prompt, OPENAI_API_KEY!, apiParams.size,
             apiParams.quality, apiParams.output_format,
           );
-        }
-
-        // ── Quality Gate — verify image matches the dish (if enabled) ──
-        if (ENABLE_VERIFY && !dish.isEnhance && imageUrl) {
-          const verifyResult = await verifyDishPhoto(imageUrl, dish.name, dish.description, OPENAI_API_KEY!);
-          console.log(`🔍 Verify ${dish.name}: ${verifyResult.pass ? 'PASS' : 'FAIL'} — ${verifyResult.reason}`);
-
-          if (!verifyResult.pass) {
-            // Retry once with the critique injected
-            console.log(`🔄 Retrying ${dish.name} with critique: ${verifyResult.reason}`);
-            const retryInstructions = [
-              dish.userInstructions || '',
-              `IMPORTANT CORRECTION: The previous image was rejected because: ${verifyResult.reason}. Fix this issue.`,
-            ].filter(Boolean).join(' ');
-
-            const retryPrompt = buildPromptForDish({
-              name: dish.name,
-              category: dish.category,
-              description: dish.description,
-              style: dish.style,
-              restaurantStyleDescription: dish.restaurantStyleDescription,
-              backgroundDescription: dish.backgroundDescription,
-              tailles: dish.tailles,
-              cuisineProfile: dish.cuisineProfile,
-              cuisineTypes: dish.cuisineTypes,
-              restaurantType,
-              gastroLevel,
-              isEnhance: false,
-              userInstructions: retryInstructions,
-              hasRestaurantPhoto: hasRestaurant,
-              hasDishReference: hasDishRef,
-              hasAmbiancePhoto: hasAmbiance,
-              hasSiblingImage: !!siblingBase64,
-              styleTemplate: dish.styleTemplate,
-            });
-
-            if (hasStyleImages) {
-              imageUrl = await generateWithStyleImages(
-                retryPrompt, OPENAI_API_KEY!, finalDishReferenceBase64,
-                finalRestaurantPhotoBase64, dish.ambiancePhotoBase64 || '',
-                apiParams.quality, siblingBase64, apiParams.size,
-                apiParams.input_fidelity, apiParams.output_format, false,
-              );
-            } else {
-              imageUrl = await generateWithTextOnly(
-                retryPrompt, OPENAI_API_KEY!, apiParams.size,
-                apiParams.quality, apiParams.output_format,
-              );
-            }
-            console.log(`🔄 Retry done: ${dish.name}`);
-          }
         }
 
         console.log(`✅ Done: ${dish.name}`);
@@ -1725,27 +1610,40 @@ Deno.serve(async (req) => {
         return {
           dishId: dish.id,
           imageUrl: null,
-          error: dish.isEnhance ? "enhance_failed" : "generation_failed",
+          error: msg,
         };
       }
     }
 
-    // ── Phase 1: Anchor — generate first non-enhance dish alone to establish style lock ──
-    const anchorIndex = dishes.findIndex((d: { isEnhance?: boolean }) => !d.isEnhance);
+    // ── Style-lock strategy ──
+    // With gpt-image-2 auto-high-fidelity on inputs, an existing reference photo
+    // (restaurant cover or dish reference) already provides a strong visual anchor.
+    // We only run the sequential anchor phase when NO external reference exists.
+    const hasExternalStyleReference = !!sharedRestaurantPhotoBase64
+      || dishes.some((d: { dishReferenceUrl?: string; sourceImageUrl?: string }) => d.dishReferenceUrl || d.sourceImageUrl);
 
-    if (anchorIndex >= 0) {
-      console.log(`🔒 Phase 1: Generating anchor image (${dishes[anchorIndex].name})...`);
-      const anchorResult = await processOneDish(dishes[anchorIndex], '');
-      results.push(anchorResult);
+    // deno-lint-ignore no-explicit-any
+    let remainingDishes: any[] = dishes;
 
-      if (anchorResult.imageUrl?.startsWith('data:')) {
-        firstGeneratedImageBase64 = anchorResult.imageUrl;
-        console.log(`🔒 Style lock captured — batch reference set`);
+    if (!hasExternalStyleReference) {
+      // Fallback: generate one anchor dish first to capture a style baseline for the batch.
+      const anchorIndex = dishes.findIndex((d: { isEnhance?: boolean }) => !d.isEnhance);
+      if (anchorIndex >= 0) {
+        console.log(`🔒 No external reference — generating anchor (${dishes[anchorIndex].name})...`);
+        const anchorResult = await processOneDish(dishes[anchorIndex], '');
+        results.push(anchorResult);
+
+        if (anchorResult.imageUrl?.startsWith('data:')) {
+          firstGeneratedImageBase64 = anchorResult.imageUrl;
+          console.log(`🔒 Style lock captured`);
+        }
+        remainingDishes = dishes.filter((_: unknown, i: number) => i !== anchorIndex);
       }
+    } else {
+      console.log(`⚡ External reference detected — skipping anchor, all dishes in parallel from start`);
     }
 
-    // ── Phase 2: Remaining dishes in parallel batches of PARALLEL_BATCH_SIZE ──
-    const remainingDishes = dishes.filter((_: unknown, i: number) => i !== anchorIndex);
+    // ── Parallel phase: remaining dishes in batches of PARALLEL_BATCH_SIZE ──
 
     if (remainingDishes.length > 0) {
       const siblingRef = firstGeneratedImageBase64 || '';

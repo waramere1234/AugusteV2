@@ -214,8 +214,8 @@ export function PhotosPage() {
         </div>
       </div>
 
-      {/* Generation in progress */}
-      {generating && (
+      {/* Generation in progress (stays visible while errors exist so user can read them) */}
+      {(generating || jobs.some((j) => j.status === 'error')) && (
         <div className="bg-white rounded-2xl p-5 shadow-sm space-y-4 animate-fade-in">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-[#C9A961]/10 flex items-center justify-center shrink-0">
@@ -243,35 +243,40 @@ export function PhotosPage() {
           </div>
 
           {/* Job list */}
-          <div className="space-y-1 max-h-32 overflow-y-auto scrollbar-hide">
+          <div className="space-y-1 max-h-64 overflow-y-auto scrollbar-hide">
             {jobs.map((job) => (
-              <div key={job.itemId} className="flex items-center gap-2.5 text-xs py-0.5">
-                {job.status === 'pending' && (
-                  <div className="w-4 h-4 rounded-full border-[1.5px] border-[#2C2622]/15 shrink-0" />
-                )}
-                {job.status === 'generating' && (
-                  <Loader2 size={14} className="animate-spin text-[#C9A961] shrink-0" />
-                )}
-                {job.status === 'done' && (
-                  <div className="w-4 h-4 rounded-full bg-[#7C9A6B] flex items-center justify-center shrink-0">
-                    <Check size={10} className="text-white" strokeWidth={3} />
-                  </div>
-                )}
-                {job.status === 'error' && (
-                  <AlertCircle size={14} className="text-[#D4895C] shrink-0" />
-                )}
-                <span className={
-                  job.status === 'generating' ? 'text-[#C9A961] font-medium' :
-                  job.status === 'done' ? 'text-[#7C9A6B]' :
-                  job.status === 'error' ? 'text-[#D4895C]' :
-                  'text-[#2C2622]/40'
-                }>
-                  {job.itemName}
-                </span>
-                {job.type === 'enhance' && (
-                  <span className="text-[10px] text-[#C9A961]/70 font-medium">
-                    {t('photos.enhance.label')}
+              <div key={job.itemId} className="flex flex-col gap-0.5 text-xs py-0.5">
+                <div className="flex items-center gap-2.5">
+                  {job.status === 'pending' && (
+                    <div className="w-4 h-4 rounded-full border-[1.5px] border-[#2C2622]/15 shrink-0" />
+                  )}
+                  {job.status === 'generating' && (
+                    <Loader2 size={14} className="animate-spin text-[#C9A961] shrink-0" />
+                  )}
+                  {job.status === 'done' && (
+                    <div className="w-4 h-4 rounded-full bg-[#7C9A6B] flex items-center justify-center shrink-0">
+                      <Check size={10} className="text-white" strokeWidth={3} />
+                    </div>
+                  )}
+                  {job.status === 'error' && (
+                    <AlertCircle size={14} className="text-[#D4895C] shrink-0" />
+                  )}
+                  <span className={
+                    job.status === 'generating' ? 'text-[#C9A961] font-medium' :
+                    job.status === 'done' ? 'text-[#7C9A6B]' :
+                    job.status === 'error' ? 'text-[#D4895C]' :
+                    'text-[#2C2622]/40'
+                  }>
+                    {job.itemName}
                   </span>
+                  {job.type === 'enhance' && (
+                    <span className="text-[10px] text-[#C9A961]/70 font-medium">
+                      {t('photos.enhance.label')}
+                    </span>
+                  )}
+                </div>
+                {job.status === 'error' && job.error && (
+                  <p className="text-[10px] text-[#D4895C]/80 pl-6 break-words">{job.error}</p>
                 )}
               </div>
             ))}
