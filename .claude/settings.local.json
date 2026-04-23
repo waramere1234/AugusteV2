@@ -24,7 +24,9 @@
       "Bash(cat:*)",
       "Bash(python:*)",
       "WebFetch(domain:cgsykmcohllfuwtessbp.supabase.co)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "WebSearch",
+      "Bash(git push *)"
     ]
   }
 }
